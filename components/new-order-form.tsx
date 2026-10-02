@@ -62,12 +62,12 @@ export function NewOrderForm() {
       items.map((item) => (item.id === id ? { ...item, ...values } : item)),
     );
   }
-  function submit(event: React.SyntheticEvent<HTMLFormElement>) {
+  async function submit(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     request.current ||= crypto.randomUUID();
-    const result = mutate({
+    const result = await mutate({
       type: 'create-order',
       input: {
         requestId: request.current,

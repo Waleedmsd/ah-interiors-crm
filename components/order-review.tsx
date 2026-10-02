@@ -161,7 +161,7 @@ export function OrderReview({ id }: { id: string }) {
           </div>
           <Button
             className="btn btn-small"
-            onClick={() => {
+            onClick={async () => {
               dispatch({ type: 'revise', id, now });
               notify(
                 'A new revision is open. Review and approve it again before execution.',
@@ -542,7 +542,7 @@ export function OrderReview({ id }: { id: string }) {
             <br />
             <Button
               className="btn btn-small mt-4 w-full"
-              onClick={() => {
+              onClick={async () => {
                 ask('What is blocking order #' + id + '?', [], id);
                 setAssistantOpen(true);
               }}
@@ -576,9 +576,10 @@ export function OrderReview({ id }: { id: string }) {
             <Button
               className="btn btn-primary"
               disabled={blockers.length > 0 || approved}
-              onClick={() => {
+              onClick={async () => {
                 if (approvalBlockers(order).length) return;
-                dispatch({ type: 'approve', id, now });
+                const result = await dispatch({ type: 'approve', id, now });
+                if (result.error) { notify(result.error); return; }
                 setConfirm(false);
                 notify(
                   'Approval recorded for revision ' +
@@ -587,7 +588,7 @@ export function OrderReview({ id }: { id: string }) {
                 );
               }}
             >
-              Approve locally
+              Approve order
               <Check size={16} />
             </Button>
           </div>

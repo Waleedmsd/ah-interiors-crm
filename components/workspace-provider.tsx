@@ -17,16 +17,20 @@ import {
   type OperationsAction,
 } from '@/lib/operations';
 import { useLocalCommerce } from '@/components/local-commerce-store';
+import { useServerCommerce } from '@/components/server-commerce-store';
 import type { CommerceAction } from '@/lib/commerce';
 import { type ChatMessage } from '@/lib/assistant-preview';
 import { operationsReply } from '@/lib/operations-assistant';
 
 function useWorkspaceState() {
-  const local = useLocalCommerce();
+  const preview = process.env.NEXT_PUBLIC_CRM_MODE === 'preview' && process.env.NODE_ENV !== 'production';
+  const legacy = useLocalCommerce(preview);
+  const remote = useServerCommerce(!preview);
+  const local = preview ? legacy : remote;
   const commit = local.commit;
   const operations = local.data.operations;
   const dispatch = useCallback(
-    (action: OperationsAction) => commit({ type: 'operation', action }),
+    async (action: OperationsAction) => { const result = await commit({ type: 'operation', action }); if (result.error) setNotice(result.error); return result; },
     [commit],
   );
   const [now, setNow] = useState(PREVIEW_NOW);
@@ -67,14 +71,14 @@ function useWorkspaceState() {
     noticeTimer.current = setTimeout(() => setNotice(''), 5000);
   }, []);
   const processOrder = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const order = operations.cases.find((item) => item.id === id);
       if (!order || !isPaid(order)) {
         notify('Verified full payment is required before processing.');
         return false;
       }
       if (!order.pack && order.status !== 'New') return false;
-      const result = dispatch({ type: 'prepare', id, now });
+      const result = await dispatch({ type: 'prepare', id, now });
       if (result.error) {
         notify(result.error);
         return false;
@@ -126,8 +130,8 @@ function useWorkspaceState() {
     ready: local.ready,
     persistence: local.persistence,
     recoveryNotice: local.recoveryNotice,
-    mutate: (action: CommerceAction) => {
-      const result = local.commit(action);
+    mutate: async (action: CommerceAction) => {
+      const result = await local.commit(action);
       if (result.error) notify(result.error);
       return result;
     },

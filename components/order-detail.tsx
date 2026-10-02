@@ -1,4 +1,5 @@
 'use client';
+import { RecordAttachments } from '@/components/record-attachments';
 import { useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -235,7 +236,7 @@ export function OrderDetail({ id }: { id: string }) {
               <OrderMessages order={order} />
             </TabsContent>
             <TabsContent value="documents">
-              <OrderDocuments order={order} />
+              <OrderDocuments order={order} /><RecordAttachments entity="order" entityId={id}/>
             </TabsContent>
             <TabsContent value="timeline">
               <OrderHistory order={order} />
@@ -253,10 +254,10 @@ export function OrderDetail({ id }: { id: string }) {
               )}
               <form
                 className="ops-note-form"
-                onSubmit={(event) => {
+                onSubmit={async (event) => {
                   event.preventDefault();
                   if (!note.trim()) return;
-                  const result = dispatch({
+                  const result = await dispatch({
                     type: 'note',
                     id,
                     text: note,

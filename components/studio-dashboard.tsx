@@ -199,8 +199,8 @@ export function StudioDashboard() {
                     {row.task && (
                       <button
                         className="liquid-inline-action"
-                        onClick={() => {
-                          const result = dispatch({
+                        onClick={async () => {
+                          const result = await dispatch({
                             type: 'snooze',
                             id: row.order.id,
                             taskId: row.task!.id,
@@ -219,7 +219,7 @@ export function StudioDashboard() {
                   {row.task ? (
                     <button
                       className="btn btn-small"
-                      onClick={() => {
+                      onClick={async () => {
                         ask(
                           'Draft a supplier follow-up for order #' +
                             row.order.id,

@@ -163,9 +163,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         )}
         {persistence === 'read-only' && (
           <output className="storage-warning">
-            Read-only tab. To protect payments from conflicting edits, only one
-            tab can edit this workspace. Close the other editing tab and refresh
-            here. A browser with Web Locks support is required.
+            The workspace is unavailable or access is restricted. Reload to reconnect before editing.
           </output>
         )}
         {recoveryNotice && (

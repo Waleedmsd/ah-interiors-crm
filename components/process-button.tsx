@@ -48,8 +48,8 @@ export function ProcessButton({
     <Button
       className={'btn ' + (compact ? 'btn-small btn-subtle' : 'btn-primary')}
       disabled={!ready}
-      onClick={() => {
-        if (processOrder(id)) router.push(packHref(id));
+      onClick={async () => {
+        if (await processOrder(id)) router.push(packHref(id));
       }}
     >
       Process order

@@ -23,6 +23,7 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '@/components/ui/tooltip';
+import { useAuth } from '@/components/auth-boundary';
 import { useWorkspace } from '@/components/workspace-provider';
 import { useUIPreferences } from '@/components/ui-preferences-provider';
 import { moduleForPath } from '@/lib/ui-preferences';
@@ -65,6 +66,7 @@ export function StudioHeader({
   onNotifications: () => void;
   notifications: number;
 }) {
+  const {user:staff}=useAuth();
   const current =
     title ||
     navigation.find((item) => activeRoute(pathname, item.href))?.label ||
@@ -111,12 +113,12 @@ export function StudioHeader({
         <Link
           href="/settings"
           className="liquid-account"
-          aria-label="Amir, workspace settings"
+          aria-label="Staff account settings"
         >
           <span>AM</span>
           <div>
-            <strong>Amir</strong>
-            <small>Workspace admin</small>
+            <strong>{staff?.name ?? "Amir"}</strong>
+            <small>{staff?.role ?? "Workspace admin"}</small>
           </div>
         </Link>
       </div>

@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useState } from 'react';
 import {
   ArrowUpRight,
@@ -99,7 +100,7 @@ export default function SettingsPage() {
   >(null);
   const dirty = values.some((value, index) => value !== preferences[index]);
   return (
-    <div className="page">
+    <div className="page"><Link className="btn" href="/settings/business">Staff & business rules</Link><Link className="btn" href="/notifications">Notification centre</Link>
       <PageIntro
         title="Workspace settings"
         description="Connections, preferences, and the boundaries that keep your operations in control."

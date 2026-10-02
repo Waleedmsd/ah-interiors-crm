@@ -1,0 +1,76 @@
+import {eq} from 'drizzle-orm';
+import {database} from '../db';
+import {customers,orders,invoices,payments,workspaces,auditLogs,requests} from '../db/schema';
+import {applyCommerce,parseSavedCommerce,type CommerceState,type CommerceAction} from '../../lib/commerce';
+import {authorize,AppError,type Staff} from '../permissions';
+import {digest} from '../auth';
+import {mutationInput} from '../validation';
+export const workspaceId='ah-interiors';
+type Tx=Parameters<Parameters<ReturnType<typeof database>['transaction']>[0]>[0];
+export async function projectCommerce(tx:Tx,state:CommerceState) {
+ for(const customer of state.customers) await tx.insert(customers).values({...customer,data:customer}).onConflictDoUpdate({target:customers.id,set:{name:customer.name,email:customer.email,phone:customer.phone,postcode:customer.postcode,data:customer}});
+ for(const order of state.operations.cases) await tx.insert(orders).values({id:order.id,customerId:order.customerId,channel:order.channel,status:order.status,data:order}).onConflictDoUpdate({target:orders.id,set:{customerId:order.customerId,channel:order.channel,status:order.status,data:order}});
+ for(const invoice of state.invoices) {
+  await tx.insert(invoices).values({id:invoice.id,customerId:invoice.customerId,orderId:invoice.orderId,lifecycle:invoice.lifecycle,data:invoice}).onConflictDoUpdate({target:invoices.id,set:{lifecycle:invoice.lifecycle,data:invoice}});
+  for(const payment of invoice.payments)await tx.insert(payments).values({...payment,id:invoice.id+':'+payment.id,invoiceId:invoice.id,at:new Date(payment.at)}).onConflictDoNothing();
+ }
+}
+export function actionPermission(staff:Staff,action:CommerceAction) {
+ if(action.type==='create-customer')return authorize(staff,'customers.write');
+ if(action.type==='create-order')return authorize(staff,'orders.write');
+ if(action.type==='pay-invoice')return authorize(staff,'payments.write');
+ if(action.type==='operation') {
+  if(action.action.type==='payment')throw new AppError(422,'VALIDATION','Record payments through the invoice ledger.');
+  if(['approve','check','revise','line','route'].includes(action.action.type))return authorize(staff,'approvals.write');
+  return authorize(staff,'orders.write');
+ }
+ return authorize(staff,'invoices.write');
+}
+export async function readCommerce(staff:Staff) {
+ authorize(staff,'commerce.read');
+ const [row]=await database().select().from(workspaces).where(eq(workspaces.id,workspaceId));
+ if(!row)throw new AppError(503,'NOT_INITIALIZED','Run database migrations and the seed command first.');
+ return {data:row.data,version:row.version};
+}
+export async function mutateCommerce(staff:Staff,input:unknown) {
+ authorize(staff,'commerce.read');
+ const parsed=mutationInput.parse(input);const action=parsed.action as CommerceAction;
+ actionPermission(staff,action);
+ const requestKey=staff.id+':'+parsed.requestId;
+ const actionDigest=digest(JSON.stringify(action));
+ return database().transaction(async tx=>{
+  const [row]=await tx.select().from(workspaces).where(eq(workspaces.id,workspaceId)).for('update');
+  if(!row)throw new AppError(503,'NOT_INITIALIZED','Initialize the database first.');
+  const [prior]=await tx.select().from(requests).where(eq(requests.id,requestKey));
+  if(prior){if(prior.digest!==actionDigest)throw new AppError(409,'IDEMPOTENCY_CONFLICT','This request ID was already used.');return {...prior.result as object,data:row.data,version:row.version};}
+  if(row.version!==parsed.version)throw new AppError(409,'VERSION_CONFLICT','Records changed. Reload the workspace and try again.');
+  // Server owns timestamps; caller cannot backdate operational audit evidence.
+  if('now' in action) action.now=Date.now();
+  if('input' in action) action.input.now=Date.now();
+  if(action.type==='operation'&&'now' in action.action)action.action.now=Date.now();
+  const result=applyCommerce(row.data,action);
+  if(result.error)throw new AppError(422,'WORKFLOW',result.error);
+  if(!parseSavedCommerce(JSON.stringify(result.state)))throw new AppError(422,'INTEGRITY','The change violates ledger relationships.');
+  const version=row.version+1;
+  await projectCommerce(tx,result.state);
+  await tx.update(workspaces).set({data:result.state,version,updatedAt:new Date()}).where(eq(workspaces.id,workspaceId));
+  const entity=action.type==='operation'?'order':action.type.includes('invoice')?'invoice':action.type==='create-order'?'order':'customer';
+  const entityId=result.id??('id' in action?action.id:action.type==='operation'?action.action.id:workspaceId);
+  await tx.insert(auditLogs).values({userId:staff.id,entity,entityId,action:action.type==='operation'?action.action.type:action.type,before:entity==='order'?row.data.operations.cases.find(v=>v.id===entityId):entity==='invoice'?row.data.invoices.find(v=>v.id===entityId):null,after:entity==='order'?result.state.operations.cases.find(v=>v.id===entityId):entity==='invoice'?result.state.invoices.find(v=>v.id===entityId):result.state.customers.find(v=>v.id===entityId)});
+  await tx.insert(requests).values({id:requestKey,userId:staff.id,digest:actionDigest,result:{id:result.id,version}});
+  return {data:result.state,version,id:result.id};
+ });
+}
+export async function importCommerce(staff:Staff,input:unknown) {
+ authorize(staff,'settings.write');const state=parseSavedCommerce(JSON.stringify(input));
+ if(!state)throw new AppError(422,'VALIDATION','Invalid browser export or inconsistent invoice balances.');
+ return database().transaction(async tx=>{
+  const [existing]=await tx.select().from(workspaces).where(eq(workspaces.id,workspaceId)).for('update');
+  // Never overwrite shared records. Import is only offered before initial ledger seeding.
+  if(existing)throw new AppError(409,'ALREADY_INITIALIZED','Import requires an empty workspace. Existing shared records are never overwritten.');
+  await projectCommerce(tx,state);
+  await tx.insert(workspaces).values({id:workspaceId,data:state});
+  await tx.insert(auditLogs).values({userId:staff.id,entity:'workspace',entityId:workspaceId,action:'browser-import',after:{customers:state.customers.length,orders:state.operations.cases.length,invoices:state.invoices.length}});
+  return {data:state,version:1};
+ });
+}

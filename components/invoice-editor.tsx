@@ -67,7 +67,7 @@ export function InvoiceEditor({
     taxBps: parsePounds(tax) || 0,
     payments: [],
   });
-  function submit(event: React.SyntheticEvent<HTMLFormElement>) {
+  async function submit(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
@@ -83,7 +83,7 @@ export function InvoiceEditor({
       notes,
       now,
     };
-    const result = mutate({
+    const result = await mutate({
       type: invoice ? 'edit-invoice' : 'create-invoice',
       id: recordId.current,
       input,

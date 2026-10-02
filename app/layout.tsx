@@ -3,6 +3,7 @@ import { DM_Sans, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import './reskin.css';
 import './motion.css';
+import { AuthBoundary } from '@/components/auth-boundary';
 import { OperationsShell } from '@/components/operations-shell';
 
 const manrope = DM_Sans({
@@ -45,7 +46,7 @@ export default function RootLayout({
   return (
     <html lang="en" data-motion="full">
       <body className={`${manrope.variable} ${sora.variable} antialiased`}>
-        <OperationsShell>{children}</OperationsShell>
+        <AuthBoundary><OperationsShell>{children}</OperationsShell></AuthBoundary>
       </body>
     </html>
   );

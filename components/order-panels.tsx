@@ -175,7 +175,7 @@ function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
           <Button
             className="btn btn-small btn-primary"
             disabled={locked || !Number.isFinite(parsePounds(cost))}
-            onClick={() => {
+            onClick={async () => {
               dispatch({
                 type: 'line',
                 id: order.id,
@@ -346,7 +346,7 @@ function FulfilmentGroup({ order, group }: { order: OrderCase; group: Group }) {
           <div>
             <Button
               className="btn btn-small btn-primary"
-              onClick={() => {
+              onClick={async () => {
                 dispatch({
                   type: 'route',
                   id: order.id,
@@ -410,7 +410,7 @@ function FulfilmentGroup({ order, group }: { order: OrderCase; group: Group }) {
           <div>
             <Button
               className="btn btn-small"
-              onClick={() => {
+              onClick={async () => {
                 setEvidenceType(available[0]);
                 setOpen(true);
               }}
@@ -469,7 +469,7 @@ function FulfilmentGroup({ order, group }: { order: OrderCase; group: Group }) {
             disabled={
               !ready || !detail.trim() || !available.includes(evidenceType)
             }
-            onClick={() => {
+            onClick={async () => {
               dispatch({
                 type: 'evidence',
                 id: order.id,
@@ -563,8 +563,8 @@ export function PaymentPanel({ order }: { order: OrderCase }) {
           <Button
             className="btn btn-primary"
             disabled={!ready}
-            onClick={() => {
-              const result = mutate({
+            onClick={async () => {
+              const result = await mutate({
                 type: 'create-invoice',
                 id: nextInvoiceId(commerce),
                 input: invoiceInputForOrder(order, Date.now()),
@@ -762,7 +762,7 @@ export function OrderMessages({ order }: { order: OrderCase }) {
       <div>
         <Button
           className="btn"
-          onClick={() => {
+          onClick={async () => {
             ask(
               'Draft a supplier follow-up for order #' + order.id,
               [],

@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { RecordAttachments } from '@/components/record-attachments';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -350,6 +351,6 @@ export function StudioCustomerProfile({ customer }: { customer: Customer }) {
           </p>
         </aside>
       </div>
-    </div>
+    <RecordAttachments entity="customer" entityId={customer.id}/></div>
   );
 }

@@ -167,12 +167,12 @@ hot?.dispose(() => {
   if (typeof window !== 'undefined')
     window.removeEventListener('storage', onStorage);
 });
-export function useLocalCommerce() {
+export function useLocalCommerce(enabled = true) {
   const current = useSyncExternalStore(
     subscribe,
     () => snapshot,
     () => serverSnapshot,
   );
-  useEffect(initialize, []);
+  useEffect(() => { if (enabled) initialize(); }, [enabled]);
   return { ...current, commit: commitCommerce };
 }

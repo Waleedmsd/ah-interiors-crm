@@ -149,8 +149,8 @@ export function CustomerPicker({
               type="button"
               className="btn btn-primary"
               disabled={!ready}
-              onClick={() => {
-                const result = mutate({
+              onClick={async () => {
+                const result = await mutate({
                   type: 'create-customer',
                   customer: form,
                   now: Date.now(),

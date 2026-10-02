@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
+import { RecordAttachments } from '@/components/record-attachments';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -61,14 +62,14 @@ export function InvoiceDetail({ id }: { id: string }) {
     );
   if (editing && invoice.lifecycle === 'Draft')
     return (
-      <div className="page commerce-page">
+      <div className="page commerce-page"><RecordAttachments entity="invoice" entityId={invoice.id}/>
         <InvoiceEditor invoice={invoice} onDone={() => setEditing(false)} />
       </div>
     );
   const customer = customerForInvoice(commerce, invoice);
   const totals = invoiceTotals(invoice);
   return (
-    <div className="page commerce-page invoice-detail-page">
+    <div className="page commerce-page invoice-detail-page"><RecordAttachments entity="invoice" entityId={invoice.id}/>
       <div className="no-print">
         <Link href="/invoices" className="back-link">
           <ArrowLeft size={15} /> All invoices
@@ -406,8 +407,8 @@ function InvoiceActions({
         },
       );
   }
-  function saveEmail() {
-    const result = mutate({
+  async function saveEmail() {
+    const result = await mutate({
       type: 'invoice-email',
       id: invoice.id,
       ...email,
@@ -667,8 +668,8 @@ function InvoiceActions({
                 </Button>
                 <Button
                   className="btn btn-primary"
-                  onClick={() => {
-                    if (saveEmail())
+                  onClick={async () => {
+                    if (await saveEmail())
                       window.location.href =
                         'mailto:' +
                         encodeURIComponent(email.to) +
@@ -685,22 +686,22 @@ function InvoiceActions({
               <Button
                 className="btn btn-primary"
                 disabled={!ready}
-                onClick={() => {
+                onClick={async () => {
                   const result =
                     mode === 'issue'
-                      ? mutate({
+                      ? await mutate({
                           type: 'issue-invoice',
                           id: invoice.id,
                           now: Date.now(),
                         })
                       : mode === 'void'
-                        ? mutate({
+                        ? await mutate({
                             type: 'void-invoice',
                             id: invoice.id,
                             reason,
                             now: Date.now(),
                           })
-                        : mutate({
+                        : await mutate({
                             type: 'pay-invoice',
                             id: invoice.id,
                             payment: {
