@@ -1,12 +1,13 @@
 'use client';
-import {createContext,useContext,useEffect,useState,type ReactNode} from 'react';
+import {useEffect,useState,type ReactNode} from 'react';
+import {ArrowRight,ShieldCheck,Layers3,Truck,ChartNoAxesCombined} from 'lucide-react';
 import {StaffWork} from '@/components/staff-work';
 import {hasPermission} from '@/server/permissions';
 import {apiRequest} from '@/lib/api-client';
 import {ReportsWorkspace} from '@/components/reports-workspace';
 import type {Staff} from '@/server/permissions';
-const AuthContext=createContext<{user:Staff|null;logout:()=>Promise<void>}>({user:null,logout:async()=>{}});
-export const useAuth=()=>useContext(AuthContext);
+import {AuthContext} from '@/components/auth-context';
+export {useAuth} from '@/components/auth-context';
 export function AuthBoundary({children}:{children:ReactNode}) {
  const preview=process.env.NEXT_PUBLIC_CRM_MODE==='preview' && process.env.NODE_ENV!=='production';
  const [user,setUser]=useState<Staff|null>(null);const [loading,setLoading]=useState(!preview);const [error,setError]=useState('');
@@ -19,5 +20,5 @@ export function AuthBoundary({children}:{children:ReactNode}) {
 }
 function LoginForm({initialError,onLogin}:{initialError:string;onLogin:(staff:Staff)=>void}) {
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [error,setError]=useState(initialError);const [busy,setBusy]=useState(false);
- return <main className="page" style={{maxWidth:460,margin:'8vh auto'}}><section className="panel" style={{padding:32}}><h1>AH Interiors</h1><p>Sign in to your staff workspace.</p><form onSubmit={async event=>{event.preventDefault();setBusy(true);setError('');try{const result=await apiRequest<{user:Staff}>('/api/auth/login',{method:'POST',body:JSON.stringify({email,password})});setPassword('');onLogin(result.user);}catch(e){setError(e instanceof Error?e.message:'Sign-in failed.');}finally{setBusy(false);}}} style={{display:'grid',gap:16}}><label>Email<input className="input" style={{width:'100%'}} type="email" autoComplete="username" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<input className="input" style={{width:'100%'}} type="password" autoComplete="current-password" required maxLength={128} value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p role="alert">{error}</p>}<button className="btn btn-primary" disabled={busy}>{busy?'Signing in…':'Sign in'}</button></form></section></main>;
+ return <main className="login-page"><aside className="login-story"><a className="login-brand" href="/">amiro<span>.</span><small>AH INTERIORS</small></a><div className="login-story-copy"><span className="login-kicker">YOUR BUSINESS, BEAUTIFULLY CONNECTED</span><h1>Great interiors.<br/>Seamless operations.</h1><p>One home for your customers, your team and every detail in between.</p><div className="login-features"><span><Layers3 size={18}/>Every order in view</span><span><Truck size={18}/>Every delivery connected</span><span><ChartNoAxesCombined size={18}/>Every decision informed</span></div></div><div className="login-story-footer">Built around the way AH Interiors works.</div><div className="login-orbit" aria-hidden="true"/></aside><section className="login-main"><div className="login-card"><span className="login-emblem">AH</span><span className="login-kicker">WELCOME TO YOUR WORKSPACE</span><h2>Good to see you.</h2><p>Sign in to keep your business moving.</p><form onSubmit={async event=>{event.preventDefault();setBusy(true);setError('');try{const result=await apiRequest<{user:Staff}>('/api/auth/login',{method:'POST',body:JSON.stringify({email,password})});setPassword('');onLogin(result.user);}catch(e){setError(e instanceof Error?e.message:'Sign-in failed.');}finally{setBusy(false);}}}><label className="ops-field">Work email<input className="input" type="email" autoComplete="username" placeholder="you@ahinteriors.co.uk" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label className="ops-field">Password<input className="input" type="password" autoComplete="current-password" placeholder="Enter your password" required maxLength={128} value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p role="alert" className="ops-error">{error}</p>}<button className="btn btn-primary ops-primary" disabled={busy}>{busy?'Signing in…':'Sign in'}<ArrowRight size={16}/></button></form><p className="login-help">Need access? Contact your workspace manager.</p><div className="login-secure"><ShieldCheck size={14}/>Your private staff workspace</div></div><footer>AH Interiors · Operations workspace</footer></section></main>;
 }

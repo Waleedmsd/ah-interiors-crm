@@ -108,34 +108,6 @@ export function StudioDashboard() {
         }
       />
       <LiveBusinessSnapshot />
-      <StudioReveal className="metric-grid">
-        <Stat
-          label="Active orders"
-          value={String(
-            cases.filter((order) => currentStatus(order) !== 'Complete').length,
-          )}
-          note="Across every sales channel"
-          module="orders"
-        />
-        <Stat
-          label="Ready for review"
-          value={String(reviews.length)}
-          note="Prepared packs · approval pending"
-          module="purchasing"
-        />
-        <Stat
-          label="Follow-ups due"
-          value={String(due.length)}
-          note="Reminders due now"
-          action={due.length > 0}
-        />
-        <Stat
-          label="Upcoming movements"
-          value={String(movementRows(cases).length)}
-          note="Delivery and assembly groups"
-          module="fulfilment"
-        />
-      </StudioReveal>
       <div className="liquid-dashboard-columns">
         <div className="stack">
           <Panel
@@ -365,10 +337,10 @@ export function StudioDashboard() {
               Talk to Amiro
               <ArrowUpRight size={16} />
             </button>
-            <small>Local preview · no messages are sent</small>
+            <small>Drafting assistant · review before sending</small>
           </section>
           <p className="liquid-proof-note">
-            Counts reflect records in this browser. An approved pack is not a
+            Counts reflect your workspace records. An approved pack is not a
             placed supplier order.
           </p>
         </aside>

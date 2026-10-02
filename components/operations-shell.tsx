@@ -55,6 +55,16 @@ const pageTitles: Record<string, string> = {
   '/customers': 'Customers',
   '/settings': 'Settings',
   '/reports': 'Reports',
+  '/deliveries': 'Deliveries',
+  '/assembly-jobs': 'Assembly jobs',
+  '/flooring': 'Flooring',
+  '/service-cases': 'Customer service',
+  '/tasks': 'Tasks & follow-ups',
+  '/expenses': 'Expenses',
+  '/approvals': 'Approvals',
+  '/products': 'Products',
+  '/suppliers': 'Suppliers',
+  '/inventory': 'Inventory',
 };
 
 export function OperationsShell({ children }: { children: React.ReactNode }) {

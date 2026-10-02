@@ -86,7 +86,7 @@ export function StatusPill({
             label,
           )
         ? 'gold'
-        : tone;
+        : /^(Completed|Delivered|Resolved|Closed|Approved|Paid|Won|Confirmed|Active)$/.test(label) ? 'green' : /^(Failed|Issue Reported|Rejected|Overdue|Approval Required)$/.test(label) ? 'red' : /^(Booked|Out for Delivery|In Progress|Quote|Follow-up|Investigating)$/.test(label) ? 'blue' : tone;
   return (
     <span className={cn('pill', 'pill-' + resolved)} data-status={status}>
       {children}

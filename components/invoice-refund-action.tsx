@@ -4,7 +4,7 @@ import {CreditCard} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Dialog,DialogContent,DialogDescription,DialogTitle} from '@/components/ui/dialog';
 import {useWorkspace} from '@/components/workspace-provider';
-import {useAuth} from '@/components/auth-boundary';
+import {useAuth} from '@/components/auth-context';
 import {invoiceTotals,parsePounds,type Invoice} from '@/lib/commerce';
 import {pounds} from '@/components/invoice-list';
 import {Panel} from '@/components/page-ui';

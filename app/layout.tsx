@@ -3,6 +3,7 @@ import { DM_Sans, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import './reskin.css';
 import './motion.css';
+import './business-ui.css';
 import { AuthBoundary } from '@/components/auth-boundary';
 import { OperationsShell } from '@/components/operations-shell';
 

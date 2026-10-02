@@ -23,10 +23,11 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '@/components/ui/tooltip';
-import { useAuth } from '@/components/auth-boundary';
+import { useAuth } from '@/components/auth-context';
 import { useWorkspace } from '@/components/workspace-provider';
 import { useUIPreferences } from '@/components/ui-preferences-provider';
 import { moduleForPath } from '@/lib/ui-preferences';
+import {businessModules,canUseModule,type BusinessModule} from '@/lib/business-modules';
 import { hasPermission } from '@/server/permissions';
 const groups = [
   { label: 'Workspace', paths: ['/', '/orders', '/customers', '/products', '/suppliers'] },
@@ -117,7 +118,7 @@ export function StudioHeader({
           className="liquid-account"
           aria-label="Staff account settings"
         >
-          <span>AM</span>
+          <span>{(staff?.name??'AH').split(' ').map(v=>v[0]).slice(0,2).join('')}</span>
           <div>
             <strong>{staff?.name ?? "Amir"}</strong>
             <small>{staff?.role ?? "Workspace admin"}</small>
@@ -156,7 +157,7 @@ export function StudioSidebar({
   ).length;
   const items = [
     ...navigation.filter(
-      (item) => item.href !== '/accounts' && item.href !== '/invoices' && (!!staff && (hasPermission(staff,'commerce.read') || item.href === '/reports' && hasPermission(staff,'reports.read'))),
+      (item) => item.href !== '/accounts' && item.href !== '/invoices' && (!!staff && (hasPermission(staff,'commerce.read') || item.href === '/reports' && hasPermission(staff,'reports.read'))) && (!(item.href.slice(1) in businessModules) || !!staff && canUseModule(staff.role,item.href.slice(1) as BusinessModule)) && (item.href !== '/reports' || !!staff && hasPermission(staff,'reports.read')),
     ),
     { href: '/invoices', label: 'Invoices', icon: FileText, index: 'F' },
   ];
@@ -181,7 +182,7 @@ export function StudioSidebar({
           <strong>AH Interiors</strong>
           <small>Operations workspace</small>
         </div>
-        <span className="workspace-online nav-copy" title="Local workspace" />
+        <span className="workspace-online nav-copy" title="Shared team workspace" />
       </div>
       <TooltipProvider delay={180}>
         <LayoutGroup id={mobile ? 'mobile-navigation' : 'workspace-navigation'}>
@@ -300,7 +301,7 @@ export function StudioSidebar({
           )}
         </div>
         <div className="liquid-local-label nav-copy">
-          <span /> Local workspace · Private
+          <span /> AH Interiors · Staff workspace
         </div>
       </div>
     </aside>

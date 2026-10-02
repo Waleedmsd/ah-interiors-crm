@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const browser=await chromium.launch({headless:true,channel:'chrome'});
 const context=await browser.newContext();const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-const first=await page.goto('http://localhost:3001'); assert.equal(new URL(page.url()).pathname,'/login');await page.getByLabel('Email',{exact:true}).fill('manager@ahinteriors.test');await page.getByLabel('Password',{exact:true}).fill(process.env.SEED_PASSWORD);await page.getByRole('button',{name:'Sign in',exact:true}).click();
+const first=await page.goto('http://localhost:3001'); assert.equal(new URL(page.url()).pathname,'/login');await page.getByLabel('Work email',{exact:true}).fill('manager@ahinteriors.test');await page.getByLabel('Password',{exact:true}).fill(process.env.SEED_PASSWORD);await page.getByRole('button',{name:'Sign in',exact:true}).click();
 await page.getByRole('heading',{name:'A clear view of today.'}).waitFor({timeout:60000});
 await page.goto('http://localhost:3001/customers');await page.waitForTimeout(1500);
 assert.equal(await page.getByRole('button',{name:'Sign in',exact:true}).count(),0);

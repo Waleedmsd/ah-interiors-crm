@@ -1,3 +1,4 @@
+import {operationalTransitions as transitions} from '../../lib/operational-transitions';
 import {digest} from '../auth';
 import {deliveryReady,updateOrderProgress} from './order-progress';
 import {randomUUID} from 'node:crypto';
@@ -48,15 +49,7 @@ export async function saveRecord(staff:Staff,module:BusinessModule,input:unknown
  }
  return record;
 });}
-const transitions:Record<BusinessModule,Record<string,string[]>>={
- 'deliveries':{'Awaiting Stock':['Ready to Book'],'Ready to Book':['Customer Contact Required','Booked'],'Customer Contact Required':['Booked'],'Booked':['Confirmed','Rescheduled'],'Confirmed':['Out for Delivery','Rescheduled'],'Out for Delivery':['Delivered','Failed'],'Delivered':['Completed'],'Failed':['Rescheduled'],'Rescheduled':['Booked']},
- 'assembly-jobs':{'Awaiting Booking':['Booked','Cancelled'],'Booked':['Confirmed','Rescheduled','Cancelled'],'Confirmed':['In Progress','Rescheduled','Cancelled'],'In Progress':['Completed','Issue Reported'],'Issue Reported':['Rescheduled','In Progress'],'Rescheduled':['Booked','Cancelled']},
- 'flooring':{'Lead':['Measure Booked','Lost'],'Measure Booked':['Measure Completed','Lost'],'Measure Completed':['Quote','Lost'],'Quote':['Follow-up','Won','Lost'],'Follow-up':['Won','Lost'],'Won':['Materials Ordered'],'Materials Ordered':['Fitting Booked'],'Fitting Booked':['Installation'],'Installation':['Completed']},
- 'service-cases':{'New':['Investigating'],'Investigating':['Awaiting Customer','Awaiting Supplier','Replacement Ordered','Ready to Resolve'],'Awaiting Customer':['Investigating','Ready to Resolve'],'Awaiting Supplier':['Investigating','Replacement Ordered','Ready to Resolve'],'Replacement Ordered':['Replacement In Transit'],'Replacement In Transit':['Ready to Resolve'],'Ready to Resolve':['Resolved'],'Resolved':['Closed']},
- 'tasks':{'Open':['In Progress','Completed','Cancelled'],'In Progress':['Completed','Cancelled']},
- 'expenses':{'Draft':['Submitted'],'Submitted':['Approved','Rejected'],'Approved':['Paid']},
- 'approvals':{'Requested':['Approved','Rejected']},
-};
+
 export async function transitionRecord(staff:Staff,module:BusinessModule,id:string,input:unknown){
  const assignedRole=(module==='deliveries'&&staff.role==='Delivery')||(module==='assembly-jobs'&&staff.role==='Installer')||(module==='tasks'&&['Delivery','Installer'].includes(staff.role));moduleAccess(staff,module,!assignedRole);
  const data=z.object({version:z.number().int().positive(),status:z.enum(businessModules[module].statuses as [string,...string[]]),evidence:z.string().trim().max(2000).optional()}).strict().parse(input);const table=operationalTables[module];

@@ -1,4 +1,5 @@
 import {
+  Hammer, Layers3, LifeBuoy, ListChecks, Receipt, ShieldCheck, Warehouse, Package, Factory,
   Boxes,
   Bot,
   CircleDollarSign,
@@ -68,17 +69,17 @@ export const orders: Order[] = [
 
 export const navigation = [
   {index:'REP',label:'Reports',icon:BarChart3,href:'/reports'},
-  {index:'DEL',label:'Deliveries',icon:ClipboardList,href:'/deliveries'},
-  {index:'ASM',label:'Assembly jobs',icon:ClipboardList,href:'/assembly-jobs'},
-  {index:'FLR',label:'Flooring',icon:ClipboardList,href:'/flooring'},
-  {index:'CS',label:'Customer service',icon:ClipboardList,href:'/service-cases'},
-  {index:'T',label:'Tasks',icon:ClipboardList,href:'/tasks'},
-  {index:'EXP',label:'Expenses',icon:ClipboardList,href:'/expenses'},
-  {index:'APR',label:'Approvals',icon:ClipboardList,href:'/approvals'},
+  {index:'DEL',label:'Deliveries',icon:Truck,href:'/deliveries'},
+  {index:'ASM',label:'Assembly jobs',icon:Hammer,href:'/assembly-jobs'},
+  {index:'FLR',label:'Flooring',icon:Layers3,href:'/flooring'},
+  {index:'CS',label:'Customer service',icon:LifeBuoy,href:'/service-cases'},
+  {index:'T',label:'Tasks',icon:ListChecks,href:'/tasks'},
+  {index:'EXP',label:'Expenses',icon:Receipt,href:'/expenses'},
+  {index:'APR',label:'Approvals',icon:ShieldCheck,href:'/approvals'},
 
-  {index:'ST',label:'Inventory',icon:Boxes,href:'/inventory'},
-  {index:'P',label:'Products',icon:Boxes,href:'/products'},
-  {index:'S',label:'Suppliers',icon:Boxes,href:'/suppliers'},
+  {index:'ST',label:'Inventory',icon:Warehouse,href:'/inventory'},
+  {index:'P',label:'Products',icon:Package,href:'/products'},
+  {index:'S',label:'Suppliers',icon:Factory,href:'/suppliers'},
   { index: '01', label: 'Today', icon: LayoutDashboard, href: '/' },
   { index: 'R', label: 'Review & approve', icon: FileCheck2, href: '/reviews' },
   { index: 'AI', label: 'Assistant', icon: Bot, href: '/assistant' },

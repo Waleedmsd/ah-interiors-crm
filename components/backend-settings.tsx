@@ -1,7 +1,7 @@
 'use client';
 import {useEffect,useState} from 'react';
 import {apiRequest} from '@/lib/api-client';
-import {useAuth} from '@/components/auth-boundary';
+import {useAuth} from '@/components/auth-context';
 import {PageIntro,Panel} from '@/components/page-ui';
 import {roles,hasPermission} from '@/server/permissions';
 type StaffRow={id:string;name:string;email:string;role:string;active:boolean;department:string};
