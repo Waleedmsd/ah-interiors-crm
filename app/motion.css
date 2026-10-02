@@ -1,0 +1,221 @@
+/* Interaction grammar: the application shell enters once; state changes stay local. */
+:root {
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-quick: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media screen {
+  html[data-motion='full'][data-entrance='playing'] .liquid-sidebar {
+    animation: liquid-first-in 0.5s var(--motion-ease) backwards;
+  }
+  html[data-motion='full'][data-entrance='playing'] .workspace-main {
+    animation: liquid-first-in 0.5s 0.04s var(--motion-ease) backwards;
+  }
+  :is(
+    .btn,
+    .icon-btn,
+    .row-action,
+    .studio-round,
+    .liquid-nav-link,
+    .liquid-new-order,
+    .liquid-search-trigger,
+    .liquid-assistant-link,
+    .tab-link,
+    .appearance-choice-group button
+  ) {
+    transition:
+      background-color 0.16s ease,
+      color 0.16s ease,
+      border-color 0.16s ease,
+      box-shadow 0.16s ease,
+      scale 0.14s var(--motion-quick),
+      translate 0.18s var(--motion-ease);
+  }
+  :is(.commerce-input, .ops-inline-input, input, textarea, select) {
+    transition:
+      border-color 0.16s ease,
+      box-shadow 0.16s ease,
+      background-color 0.16s ease;
+  }
+  :is(
+    .section-card,
+    .glass-panel,
+    .studio-customer-card,
+    .studio-invoice-tile
+  ) {
+    transition:
+      box-shadow 0.2s ease,
+      border-color 0.2s ease,
+      translate 0.18s var(--motion-ease);
+  }
+  .data-table tbody tr {
+    transition: background-color 0.16s ease;
+  }
+  html[data-motion='full']
+    :is(
+      .btn,
+      .icon-btn,
+      .row-action,
+      .studio-round,
+      .liquid-new-order,
+      .liquid-assistant-link,
+      .appearance-choice-group button
+    ):not(:disabled):not([data-disabled]):active {
+    scale: 0.98;
+    translate: 0 1px;
+  }
+  html[data-motion='full'] [data-slot='tabs-content']:not([hidden]) {
+    animation: liquid-tab-in 0.2s var(--motion-ease) backwards;
+  }
+  [data-slot='dialog-content'][data-open] {
+    animation: liquid-dialog-in 0.3s var(--motion-ease) backwards;
+  }
+  [data-slot='dialog-content'][data-closed] {
+    animation: liquid-dialog-out 0.16s ease forwards;
+  }
+  [data-slot='dialog-overlay'][data-open] {
+    animation: liquid-fade-in 0.22s ease backwards;
+  }
+  [data-slot='dialog-overlay'][data-closed] {
+    animation: liquid-fade-in 0.16s ease reverse forwards;
+  }
+  [data-slot='sheet-content'] {
+    transition:
+      translate 0.32s var(--motion-ease),
+      opacity 0.22s ease;
+  }
+  [data-slot='sheet-overlay'] {
+    transition: opacity 0.22s ease;
+  }
+  [data-slot='sheet-content'][data-side='right']:is(
+      [data-starting-style],
+      [data-ending-style]
+    ) {
+    translate: 100% 0;
+  }
+  [data-slot='sheet-content'][data-side='left']:is(
+      [data-starting-style],
+      [data-ending-style]
+    ) {
+    translate: -100% 0;
+  }
+  [data-slot='sheet-content'][data-side='bottom']:is(
+      [data-starting-style],
+      [data-ending-style]
+    ) {
+    translate: 0 100%;
+  }
+  [data-slot='sheet-content'][data-side='top']:is(
+      [data-starting-style],
+      [data-ending-style]
+    ) {
+    translate: 0 -100%;
+  }
+  :is(
+    [data-slot='popover-content'],
+    [data-slot='select-content'],
+    [data-slot='dropdown-menu-content']
+  )[data-open] {
+    animation: liquid-dialog-in 0.18s var(--motion-ease) backwards;
+  }
+  html[data-motion='reduced'] *,
+  html[data-motion='reduced'] *::before,
+  html[data-motion='reduced'] *::after {
+    animation: none !important;
+    transition-property:
+      opacity, color, background-color, border-color, box-shadow !important;
+    transition-duration: 0.1s !important;
+  }
+  html[data-motion='reduced']
+    :is(
+      .btn,
+      .icon-btn,
+      .row-action,
+      .studio-round,
+      .liquid-new-order,
+      .liquid-assistant-link,
+      .appearance-choice-group button
+    ) {
+    scale: none !important;
+    translate: none !important;
+  }
+}
+@media screen and (hover: hover) and (pointer: fine) {
+  html[data-motion='full']
+    :is(.btn, .liquid-new-order):not(:disabled):not([data-disabled]):hover {
+    translate: 0 -2px;
+  }
+  html[data-motion='full']
+    :is(.studio-invoice-tile, .studio-customer-card):hover {
+    translate: 0 -3px;
+  }
+  .studio-customer-card:hover,
+  .studio-invoice-tile:hover {
+    border-color: #c8d4e5;
+    box-shadow: var(--shadow-raised);
+  }
+  html[data-motion='full']
+    :is(.btn, .liquid-new-order):not(:disabled):not([data-disabled]):active {
+    translate: 0 1px;
+  }
+}
+@keyframes liquid-first-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes liquid-tab-in {
+  from {
+    opacity: 0;
+    translate: 0 5px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes liquid-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes liquid-dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+}
+@keyframes liquid-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media print {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    translate: none !important;
+    scale: none !important;
+    rotate: none !important;
+  }
+  .studio-route,
+  [data-motion-surface='react'],
+  .invoice-paper {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

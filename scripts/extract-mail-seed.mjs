@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const source = fs.readFileSync('app/communications/page.tsx', 'utf8');
+const start = source.indexOf('const mail = [');
+const end = source.indexOf('export default function CommunicationsPage');
+if (start < 0 || end < 0) throw new Error('Expected original mail sample was not found');
+const content = '// Existing synthetic inbox content, preserved from the original Communications preview.\n' + source.slice(start, end).replace('const mail = [', 'export const sampleMail = [');
+const patch = '*** Begin Patch\n*** Add File: lib/mail-preview.ts\n' + content.split('\n').map(line => '+' + line).join('\n') + '\n*** End Patch';
+const result = spawnSync('C:/Users/AMIR PC/AppData/Local/OpenAI/Codex/bin/codex.exe', ['--codex-run-as-apply-patch', patch], { encoding: 'utf8' });
+if (result.error) throw result.error;
+process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr || '');
+process.exitCode = result.status || 0;

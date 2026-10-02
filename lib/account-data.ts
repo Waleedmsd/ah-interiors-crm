@@ -1,0 +1,55 @@
+export const invoices = [
+  {
+    id: 'INV-10004821',
+    orderId: '10004821',
+    customer: 'John Smith',
+    total: 2840,
+    paid: 2840,
+    due: '05 Sep 2026',
+    status: 'Paid',
+    tone: 'green' as const,
+  },
+  {
+    id: 'INV-10004823',
+    orderId: '10004823',
+    customer: 'David Brown',
+    total: 4920,
+    paid: 2000,
+    due: '12 Sep 2026',
+    status: 'Part paid',
+    tone: 'gold' as const,
+  },
+  {
+    id: 'INV-10004801',
+    orderId: '10004801',
+    customer: 'Sophie Miles',
+    total: 1650,
+    paid: 0,
+    due: '09 Sep 2026',
+    status: 'Unpaid',
+    tone: 'gold' as const,
+  },
+  {
+    id: 'INV-10004772',
+    orderId: '10004772',
+    customer: 'Mark Evans',
+    total: 2880,
+    paid: 1000,
+    due: '24 Aug 2026',
+    status: 'Overdue',
+    tone: 'red' as const,
+  },
+  {
+    id: 'INV-10004764',
+    orderId: '10004764',
+    customer: 'Claire Wood',
+    total: 1630,
+    paid: 1000,
+    due: '27 Aug 2026',
+    status: 'Overdue',
+    tone: 'red' as const,
+  },
+];
+export const overdueTotal = invoices
+  .filter((invoice) => invoice.status === 'Overdue')
+  .reduce((sum, invoice) => sum + invoice.total - invoice.paid, 0);
