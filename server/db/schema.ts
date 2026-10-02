@@ -92,3 +92,23 @@ export const priceHistory = pgTable('product_price_history',{
  changedBy:text('changed_by').notNull().references(()=>users.id),at:timestamp('at',{withTimezone:true}).notNull().defaultNow(),
 });
 
+export const purchaseOrders = pgTable('purchase_orders',{
+ id:text('id').primaryKey(),number:text('number').notNull().unique(),supplierId:text('supplier_id').notNull().references(()=>suppliers.id),
+ orderId:text('order_id').references(()=>orders.id),customerId:text('customer_id').references(()=>customers.id),buyerId:text('buyer_id').notNull().references(()=>users.id),
+ status:text('status').notNull().default('Draft'),date:text('date').notNull(),expectedDate:text('expected_date'),currency:text('currency').notNull().default('GBP'),
+ accountReference:text('account_reference').notNull().default(''),notes:text('notes').notNull().default(''),version:integer('version').notNull().default(1),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const purchaseItems = pgTable('purchase_order_items',{
+ id:text('id').primaryKey(),purchaseOrderId:text('purchase_order_id').notNull().references(()=>purchaseOrders.id),
+ productId:text('product_id').notNull().references(()=>products.id),supplierSku:text('supplier_sku').notNull(),description:text('description').notNull(),
+ active:boolean('active').notNull().default(true),quantity:integer('quantity').notNull(),unitCostPence:integer('unit_cost_pence').notNull(),receivedQuantity:integer('received_quantity').notNull().default(0),
+ customerId:text('customer_id').references(()=>customers.id),
+});
+export const supplierOrders = pgTable('supplier_orders',{
+ id:text('id').primaryKey(),number:text('number').notNull().unique(),supplierId:text('supplier_id').notNull().references(()=>suppliers.id),
+ purchaseOrderId:text('purchase_order_id').notNull().references(()=>purchaseOrders.id),orderId:text('order_id').references(()=>orders.id),customerId:text('customer_id').references(()=>customers.id),
+ ownerId:text('owner_id').notNull().references(()=>users.id),status:text('status').notNull().default('Needs Ordering'),
+ details:jsonb('details').$type<Record<string,unknown>>().notNull(),version:integer('version').notNull().default(1),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+});

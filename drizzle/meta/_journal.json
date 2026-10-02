@@ -15,6 +15,20 @@
       "when": 1790953471418,
       "tag": "0001_hot_ken_ellis",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790953881376,
+      "tag": "0002_overjoyed_warstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790954126149,
+      "tag": "0003_happy_roxanne_simpson",
+      "breakpoints": true
     }
   ]
 }

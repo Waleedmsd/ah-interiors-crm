@@ -2,9 +2,10 @@ import {randomUUID} from 'node:crypto';
 import {eq,desc,and,sql} from 'drizzle-orm';
 import {z,ZodError} from 'zod';
 import {database} from './db';
-import {users,sessions,auditLogs,settings,notifications,attachments,customers,orders,invoices} from './db/schema';
+import {users,sessions,auditLogs,settings,notifications,attachments,customers,orders,invoices,suppliers,products,purchaseOrders,supplierOrders} from './db/schema';
 import {currentStaff,login,logout,sessionCookie,hashPassword} from './auth';
 import {AppError,authorize,roles,type Staff} from './permissions';
+import {listPurchases,savePurchase,transitionPurchase,listSupplierOrders,saveSupplierOrder,transitionSupplierOrder} from './services/purchasing';
 import {listProducts,saveProduct,productHistory,listSuppliers,saveSupplier} from './services/catalogue';
 import {readCommerce,mutateCommerce,importCommerce} from './services/commerce';
 import {fileStorage,detectedMime} from './storage/files';
@@ -22,6 +23,7 @@ async function boundedBody(request:Request,limit:number) {
 }
 async function body(request:Request) {if(!request.headers.get('content-type')?.includes('application/json'))throw new AppError(415,'CONTENT_TYPE','JSON is required.');try{return JSON.parse(Buffer.from(await boundedBody(request,2000000)).toString());}catch(error){if(error instanceof AppError)throw error;throw new AppError(422,'VALIDATION','Invalid JSON.');}}
 async function attachmentAccess(staff:Staff,entity:string,entityId:string,write=false) {
+ if(entity==='purchase-order'||entity==='supplier-order'){authorize(staff,'approvals.write');const found=entity==='purchase-order'?await database().select().from(purchaseOrders).where(eq(purchaseOrders.id,entityId)):await database().select().from(supplierOrders).where(eq(supplierOrders.id,entityId));if(!found.length)throw new AppError(404,'NOT_FOUND','Linked purchase not found.');return;}
  authorize(staff,write?entity==='customer'?'customers.write':entity==='invoice'?'invoices.write':'orders.write':'commerce.read');
  const db=database();
  const found=entity==='customer'?await db.select({id:customers.id}).from(customers).where(eq(customers.id,entityId)):entity==='order'?await db.select({id:orders.id}).from(orders).where(eq(orders.id,entityId)):entity==='invoice'?await db.select({id:invoices.id}).from(invoices).where(eq(invoices.id,entityId)):[];
@@ -42,6 +44,21 @@ export async function handleApi(request:Request):Promise<Response> {
   if(path==='commerce'&&method==='GET')return json(await readCommerce(staff));
   if(path==='commerce'&&method==='POST')return json(await mutateCommerce(staff,await body(request)));
   if(path==='commerce/import'&&method==='POST')return json(await importCommerce(staff,await body(request)));
+  if(path==='lookups'&&method==='GET'){
+   const financial=['Management','Team Lead','Accounts','Customer Service & Sales'].includes(staff.role);
+   const operational=['Management','Team Lead','Customer Service & Sales','Shopify Store Manager','Warehouse'].includes(staff.role);
+   const customerRows=financial?await db.select({id:customers.id,name:customers.name}).from(customers):[];
+   const orderRows=financial?await db.select({id:orders.id}).from(orders):[];
+   return json({customers:customerRows,orders:orderRows.map(v=>({id:v.id,name:'#'+v.id})),suppliers:operational?await db.select({id:suppliers.id,name:suppliers.name}).from(suppliers):[],products:operational?await db.select({id:products.id,name:products.name}).from(products):[],staff:['Management','Team Lead','Customer Service & Sales'].includes(staff.role)?await db.select({id:users.id,name:users.name}).from(users).where(eq(users.active,true)):[{id:staff.id,name:staff.name}]});
+  }
+  if(path==='purchase-orders'&&method==='GET')return json(await listPurchases(staff));
+  if(path==='purchase-orders'&&method==='POST')return json(await savePurchase(staff,await body(request)),201);
+  if(/^purchase-orders\/[^/]+$/.test(path)&&method==='PUT')return json(await savePurchase(staff,await body(request),path.split('/')[1]));
+  if(/^purchase-orders\/[^/]+$/.test(path)&&method==='PATCH')return json(await transitionPurchase(staff,path.split('/')[1],await body(request)));
+  if(path==='supplier-orders'&&method==='GET')return json(await listSupplierOrders(staff));
+  if(path==='supplier-orders'&&method==='POST')return json(await saveSupplierOrder(staff,await body(request)),201);
+  if(/^supplier-orders\/[^/]+$/.test(path)&&method==='PUT')return json(await saveSupplierOrder(staff,await body(request),path.split('/')[1]));
+  if(/^supplier-orders\/[^/]+$/.test(path)&&method==='PATCH')return json(await transitionSupplierOrder(staff,path.split('/')[1],await body(request)));
   if(path==='products'&&method==='GET')return json(await listProducts(staff));
   if(path==='products'&&method==='POST')return json(await saveProduct(staff,await body(request)),201);
   if(/^products\/[^/]+\/history$/.test(path)&&method==='GET')return json(await productHistory(staff,path.split('/')[1]));

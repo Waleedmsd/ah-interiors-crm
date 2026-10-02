@@ -7,7 +7,7 @@ import {resolve} from 'node:path';
 import {migrate} from 'drizzle-orm/node-postgres/migrator';
 import {eq} from 'drizzle-orm';
 import {database,closeDatabase} from '../../server/db';
-import {users,sessions,auditLogs,customers,workspaces,settings,priceHistory} from '../../server/db/schema';
+import {users,sessions,auditLogs,customers,workspaces,settings,priceHistory,products,purchaseItems} from '../../server/db/schema';
 import {handleApi} from '../../server/api';
 import {hashPassword,verifyPassword} from '../../server/auth';
 import {emptyCosts} from '../../lib/margin';
@@ -25,7 +25,7 @@ before(async()=>{
  const name='ah_crm_test_'+process.pid;await admin.query(`CREATE DATABASE "${name}"`);await admin.end();
  source.pathname='/'+name;process.env.DATABASE_URL=source.toString();process.env.ATTACHMENT_ROOT=testFiles;process.env.APP_ORIGIN=origin;
  await migrate(database(),{migrationsFolder:'./drizzle'});
- await database().insert(settings).values({key:'business',value:{vatBps:2000,marginThresholds:{excellent:3600,strong:3200,acceptable:2900}}});
+ await database().insert(settings).values({key:'business',value:{vatBps:2000,marginThresholds:{excellent:3600,strong:3200,acceptable:2900},supplierConfirmationDays:3}});
  managerId=randomUUID();const hash=await hashPassword(password);
  await database().insert(users).values([{id:managerId,name:'Test Manager',email:'manager@test.invalid',role:'Management',department:'Management',passwordHash:hash},{id:randomUUID(),name:'Test Warehouse',email:'warehouse@test.invalid',role:'Warehouse',department:'Warehouse',passwordHash:hash}]);
  await database().transaction(async tx=>{const data=createCommerceState();await projectCommerce(tx,data);await tx.insert(workspaces).values({id:workspaceId,data});});
@@ -60,6 +60,21 @@ test('supplier and product CRUD validate relationships, preserve price history a
  assert.equal((await request('products/'+product.id,'PUT',{...data,version:product.version})).status,409);
  const warehouse=await request('products','GET',undefined,warehouseCookie);assert.equal(warehouse.status,200);const rows=await warehouse.json() as any[];assert.equal(rows[0].supplierCostPence,undefined);assert.equal(rows[0].sellingPricePence,undefined);
  assert.equal((await request('products','POST',data,warehouseCookie)).status,403);
+});
+test('purchase orders preserve item history and supplier tracking validates confirmation and receiving stages',async()=>{
+ const [product]=await database().select().from(products);
+ const payload={supplierId:product.supplierId,orderId:'',customerId:'',date:'2026-10-02',expectedDate:'2026-11-01',currency:'GBP',accountReference:'Test',notes:'Synthetic purchase',items:[{productId:product.id,description:'Test wardrobe',quantity:2,unitCostPence:7000,customerId:''}]};
+ const response=await request('purchase-orders','POST',payload);assert.equal(response.status,201);let purchase=await response.json() as any;
+ const changed=await request('purchase-orders/'+purchase.id,'PUT',{...payload,version:purchase.version,notes:'Updated draft'});assert.equal(changed.status,200);purchase=await changed.json();
+ const allItems=await database().select().from(purchaseItems).where(eq(purchaseItems.purchaseOrderId,purchase.id));assert.equal(allItems.length,2);assert.equal(allItems.filter(v=>v.active).length,1);
+ assert.equal((await request('purchase-orders/'+purchase.id,'PATCH',{version:purchase.version,status:'Confirmed'})).status,422);
+ for(const status of ['Ready to Send','Sent','Awaiting Confirmation','Confirmed']){const r=await request('purchase-orders/'+purchase.id,'PATCH',{version:purchase.version,status});assert.equal(r.status,200);purchase=await r.json();}
+ assert.equal((await request('purchase-orders/'+purchase.id,'PATCH',{version:purchase.version,status:'Partially Received'})).status,422);
+ const details={supplierOrderNumber:'TEST-SO',confirmationNumber:'CONFIRM-01',orderedDate:'2026-01-01',confirmationDate:'2026-01-02',expectedArrival:'2026-01-30',collectionRequired:false,collectionCompany:'',collectionReference:'',collectionDate:'',lastContacted:'',nextChaseDate:'2026-01-05',deliveryBooked:false,notes:'Synthetic tracking'};
+ const tracking=await request('supplier-orders','POST',{purchaseOrderId:purchase.id,ownerId:managerId,details});assert.equal(tracking.status,201);let record=await tracking.json() as any;
+ for(const status of ['Order Sent','Awaiting Confirmation','Confirmed']){const r=await request('supplier-orders/'+record.id,'PATCH',{version:record.version,status});assert.equal(r.status,200);record=await r.json();}
+ const rows=await request('supplier-orders');assert.equal((await rows.json() as any[]).find(v=>v.id===record.id).flags.etaOverdue,true);
+ assert.equal((await request('purchase-orders','GET',undefined,warehouseCookie)).status,403);
 });
 test('disabled users and expired sessions are rejected on every request',async()=>{await database().update(users).set({active:false}).where(eq(users.id,managerId));assert.equal((await request('auth/me')).status,401);await database().update(users).set({active:true}).where(eq(users.id,managerId));await database().update(sessions).set({expiresAt:new Date(0)}).where(eq(sessions.userId,managerId));assert.equal((await request('auth/me')).status,401);const result=await request('auth/login','POST',{email:'manager@test.invalid',password},'');managerCookie=result.headers.get('set-cookie')!.split(';')[0];});
 test('attachments require linked record access and persist metadata and bytes',async()=>{
