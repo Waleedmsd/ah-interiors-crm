@@ -1,0 +1,3 @@
+ALTER TABLE "stock_movements" ADD COLUMN "request_digest" text NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "stock_product_location_unique" ON "stock_balances" USING btree ("product_id","location_id");--> statement-breakpoint
+ALTER TABLE "stock_balances" ADD CONSTRAINT "stock_balances_valid" CHECK ("stock_balances"."physical" >= 0 AND "stock_balances"."reserved" >= 0 AND "stock_balances"."display" >= 0 AND "stock_balances"."reserved" + "stock_balances"."display" <= "stock_balances"."physical");

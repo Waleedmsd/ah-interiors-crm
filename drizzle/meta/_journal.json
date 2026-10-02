@@ -29,6 +29,20 @@
       "when": 1790954126149,
       "tag": "0003_happy_roxanne_simpson",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790954356183,
+      "tag": "0004_mysterious_white_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790954419959,
+      "tag": "0005_faulty_may_parker",
+      "breakpoints": true
     }
   ]
 }

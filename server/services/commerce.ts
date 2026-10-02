@@ -1,6 +1,6 @@
 import {eq} from 'drizzle-orm';
 import {database} from '../db';
-import {customers,orders,invoices,payments,workspaces,auditLogs,requests} from '../db/schema';
+import {customers,orders,invoices,payments,workspaces,auditLogs,requests,products,suppliers} from '../db/schema';
 import {applyCommerce,parseSavedCommerce,type CommerceState,type CommerceAction} from '../../lib/commerce';
 import {authorize,AppError,type Staff} from '../permissions';
 import {digest} from '../auth';
@@ -48,7 +48,10 @@ export async function mutateCommerce(staff:Staff,input:unknown) {
   if('now' in action) action.now=Date.now();
   if('input' in action) action.input.now=Date.now();
   if(action.type==='operation'&&'now' in action.action)action.action.now=Date.now();
+  const linked=new Map<string,typeof products.$inferSelect>();
+  if(action.type==='create-order')for(const line of action.input.lines){if(!line.productId)continue;const [product]=await tx.select().from(products).where(eq(products.id,line.productId));if(!product||product.status!=='Active')throw new AppError(422,'PRODUCT_REQUIRED','Choose an active product.');const [supplier]=await tx.select().from(suppliers).where(eq(suppliers.id,product.supplierId));if(!supplier?.active)throw new AppError(422,'SUPPLIER_REQUIRED','Product supplier is inactive.');line.supplier=supplier.name;line.article=String(product.details.article??product.supplierSku);linked.set(product.id,product);}
   const result=applyCommerce(row.data,action);
+  if(action.type==='create-order'&&result.id){const created=result.state.operations.cases.find(v=>v.id===result.id);for(const line of created?.lines??[]){const product=line.productId?linked.get(line.productId):undefined;if(product){line.sku=product.sku;line.cost=product.supplierCostPence/100;line.costVerified=true;}}}
   if(result.error)throw new AppError(422,'WORKFLOW',result.error);
   if(!parseSavedCommerce(JSON.stringify(result.state)))throw new AppError(422,'INTEGRITY','The change violates ledger relationships.');
   const version=row.version+1;

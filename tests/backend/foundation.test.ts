@@ -7,7 +7,7 @@ import {resolve} from 'node:path';
 import {migrate} from 'drizzle-orm/node-postgres/migrator';
 import {eq} from 'drizzle-orm';
 import {database,closeDatabase} from '../../server/db';
-import {users,sessions,auditLogs,customers,workspaces,settings,priceHistory,products,purchaseItems} from '../../server/db/schema';
+import {users,sessions,auditLogs,customers,workspaces,settings,priceHistory,products,purchaseItems,purchaseOrders,stockLocations,stockBalances,stockReservations} from '../../server/db/schema';
 import {handleApi} from '../../server/api';
 import {hashPassword,verifyPassword} from '../../server/auth';
 import {emptyCosts} from '../../lib/margin';
@@ -75,6 +75,31 @@ test('purchase orders preserve item history and supplier tracking validates conf
  for(const status of ['Order Sent','Awaiting Confirmation','Confirmed']){const r=await request('supplier-orders/'+record.id,'PATCH',{version:record.version,status});assert.equal(r.status,200);record=await r.json();}
  const rows=await request('supplier-orders');assert.equal((await rows.json() as any[]).find(v=>v.id===record.id).flags.etaOverdue,true);
  assert.equal((await request('purchase-orders','GET',undefined,warehouseCookie)).status,403);
+});
+test('stock receiving, reservations, delivery, returns and retries remain atomic and auditable',async()=>{
+ const [product]=await database().select().from(products);const [purchase]=await database().select().from(purchaseOrders);
+ await database().insert(stockLocations).values([{id:'test-warehouse',name:'Test warehouse',type:'Physical'},{id:'test-showroom',name:'Test showroom',type:'Physical'}]);
+ const movement={requestId:randomUUID(),type:'Goods Received',productId:product.id,locationId:'test-warehouse',purchaseOrderId:purchase.id,quantity:1,reason:'Synthetic receipt'};
+ const first=await request('inventory/movements','POST',movement,warehouseCookie);assert.equal(first.status,201);assert.equal((await request('inventory/movements','POST',movement,warehouseCookie)).status,201);
+ assert.equal((await request('inventory/movements','POST',{...movement,requestId:randomUUID(),quantity:2},warehouseCookie)).status,422);
+ assert.equal((await request('inventory/movements','POST',{...movement,requestId:randomUUID()},warehouseCookie)).status,201);
+ const [received]=await database().select().from(purchaseOrders).where(eq(purchaseOrders.id,purchase.id));assert.equal(received.status,'Received');
+ const initial=await request('commerce');const state=await initial.json() as any;
+ const created=await request('commerce','POST',{requestId:randomUUID(),version:state.version,action:{type:'create-order',input:{requestId:randomUUID(),customerId:state.data.customers[0].id,channel:'Shopify',sourceRef:'STOCK-TEST',lines:[{productId:product.id,name:product.name,supplier:'Test',article:'Test',quantity:1,unitPence:12000,options:'',route:'ProBuild'}],deliveryPence:0,note:'Stock test',now:Date.now()}}});assert.equal(created.status,200);let ledger=await created.json() as any;const orderId=ledger.id;
+ const invoice=ledger.data.invoices.find((v:any)=>v.orderId===orderId);
+ const issued=await request('commerce','POST',{requestId:randomUUID(),version:ledger.version,action:{type:'issue-invoice',id:invoice.id,now:Date.now()}});assert.equal(issued.status,200);ledger=await issued.json();
+ const paid=await request('commerce','POST',{requestId:randomUUID(),version:ledger.version,action:{type:'pay-invoice',id:invoice.id,payment:{id:randomUUID(),amountPence:12000,reference:'STOCK-PAYMENT',method:'Cash',at:Date.now()}}});assert.equal(paid.status,200);
+ const reserve={requestId:randomUUID(),type:'Reservation',productId:product.id,locationId:'test-warehouse',orderId,quantity:1,reason:'Customer allocation'};
+ assert.equal((await request('inventory/movements','POST',reserve,warehouseCookie)).status,201);
+ assert.equal((await request('inventory/movements','POST',{...reserve,requestId:randomUUID()},warehouseCookie)).status,422);
+ assert.equal((await request('inventory/movements','POST',{requestId:randomUUID(),type:'Damage',productId:product.id,locationId:'test-warehouse',quantity:2,reason:'Test damage'},warehouseCookie)).status,422);
+ assert.equal((await request('inventory/movements','POST',{requestId:randomUUID(),type:'Adjustment',productId:product.id,locationId:'test-warehouse',quantity:1,reason:'Test adjustment'},warehouseCookie)).status,403);
+ const [reservation]=await database().select().from(stockReservations).where(eq(stockReservations.orderId,orderId));
+ const delivered={requestId:randomUUID(),type:'Customer Delivery',productId:product.id,locationId:'test-warehouse',orderId,reservationId:reservation.id,quantity:1,reason:'Proof of delivery'};
+ assert.equal((await request('inventory/movements','POST',delivered,warehouseCookie)).status,201);
+ const returned={...delivered,requestId:randomUUID(),type:'Return',reason:'Customer return'};assert.equal((await request('inventory/movements','POST',returned,warehouseCookie)).status,201);assert.equal((await request('inventory/movements','POST',{...returned,requestId:randomUUID()},warehouseCookie)).status,422);
+ const [balance]=await database().select().from(stockBalances).where(eq(stockBalances.productId,product.id));assert.equal(balance.physical,2);assert.equal(balance.reserved,0);
+ const audit=await database().select().from(auditLogs).where(eq(auditLogs.entity,'stock-movement'));assert.equal(audit.length,5);
 });
 test('disabled users and expired sessions are rejected on every request',async()=>{await database().update(users).set({active:false}).where(eq(users.id,managerId));assert.equal((await request('auth/me')).status,401);await database().update(users).set({active:true}).where(eq(users.id,managerId));await database().update(sessions).set({expiresAt:new Date(0)}).where(eq(sessions.userId,managerId));assert.equal((await request('auth/me')).status,401);const result=await request('auth/login','POST',{email:'manager@test.invalid',password},'');managerCookie=result.headers.get('set-cookie')!.split(';')[0];});
 test('attachments require linked record access and persist metadata and bytes',async()=>{

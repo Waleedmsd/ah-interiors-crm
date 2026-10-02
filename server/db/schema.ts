@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, boolean, integer, jsonb, bigserial, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, jsonb, bigserial, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import {sql} from 'drizzle-orm';
 import type { CommerceState, Customer, Invoice } from '../../lib/commerce';
 import type { OrderCase } from '../../lib/operations';
 export const users = pgTable('staff_users', {
@@ -111,4 +112,24 @@ export const supplierOrders = pgTable('supplier_orders',{
  ownerId:text('owner_id').notNull().references(()=>users.id),status:text('status').notNull().default('Needs Ordering'),
  details:jsonb('details').$type<Record<string,unknown>>().notNull(),version:integer('version').notNull().default(1),
  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+});
+
+export const stockLocations = pgTable('stock_locations',{
+ id:text('id').primaryKey(),name:text('name').notNull().unique(),type:text('type').notNull(),active:boolean('active').notNull().default(true),
+});
+export const stockBalances = pgTable('stock_balances',{
+ id:text('id').primaryKey(),productId:text('product_id').notNull().references(()=>products.id),locationId:text('location_id').notNull().references(()=>stockLocations.id),
+ physical:integer('physical').notNull().default(0),reserved:integer('reserved').notNull().default(0),display:integer('display').notNull().default(0),
+},t=>[uniqueIndex('stock_product_location_unique').on(t.productId,t.locationId),check('stock_balances_valid',sql`${t.physical} >= 0 AND ${t.reserved} >= 0 AND ${t.display} >= 0 AND ${t.reserved} + ${t.display} <= ${t.physical}`)]);
+export const stockReservations = pgTable('stock_reservations',{
+ id:text('id').primaryKey(),productId:text('product_id').notNull().references(()=>products.id),locationId:text('location_id').notNull().references(()=>stockLocations.id),orderId:text('order_id').notNull().references(()=>orders.id),
+ quantity:integer('quantity').notNull(),status:text('status').notNull().default('Active'),createdBy:text('created_by').notNull().references(()=>users.id),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const stockMovements = pgTable('stock_movements',{
+ id:text('id').primaryKey(),type:text('type').notNull(),productId:text('product_id').notNull().references(()=>products.id),locationId:text('location_id').notNull().references(()=>stockLocations.id),
+ targetLocationId:text('target_location_id').references(()=>stockLocations.id),orderId:text('order_id').references(()=>orders.id),purchaseOrderId:text('purchase_order_id').references(()=>purchaseOrders.id),
+ quantity:integer('quantity').notNull(),reason:text('reason').notNull(),createdBy:text('created_by').notNull().references(()=>users.id),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),before:jsonb('before').notNull(),after:jsonb('after').notNull(),
+ requestId:text('request_id').notNull().unique(),requestDigest:text('request_digest').notNull(),
 });

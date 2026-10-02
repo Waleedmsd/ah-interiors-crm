@@ -19,7 +19,7 @@ const operation=z.discriminatedUnion('type',[
 export const commerceAction=z.discriminatedUnion('type',[
  z.object({type:z.literal('create-customer'),customer:customerInput,now}),
  z.object({type:z.literal('operation'),action:operation}),
- z.object({type:z.literal('create-order'),input:z.object({requestId:id,customerId:id.optional(),customer:customerInput.optional(),channel:z.enum(['Magento','Shopify','Amazon','eBay','WhatsApp']),sourceRef:text.max(200),lines:z.array(z.object({name:text.min(1),supplier:text.min(1),article:text,quantity:z.number().int().min(1).max(10000),unitPence:money,options:text,route}).strict()).min(1).max(200),deliveryPence:money,note:text,now}).strict()}),
+ z.object({type:z.literal('create-order'),input:z.object({requestId:id,customerId:id.optional(),customer:customerInput.optional(),channel:z.enum(['Magento','Shopify','Amazon','eBay','WhatsApp']),sourceRef:text.max(200),lines:z.array(z.object({productId:id.optional(),name:text.min(1),supplier:text.min(1),article:text,quantity:z.number().int().min(1).max(10000),unitPence:money,options:text,route}).strict()).min(1).max(200),deliveryPence:money,note:text,now}).strict()}),
  z.object({type:z.literal('create-invoice'),id,input:invoiceInput}),z.object({type:z.literal('edit-invoice'),id,input:invoiceInput}),
  z.object({type:z.literal('issue-invoice'),id,now}), z.object({type:z.literal('void-invoice'),id,reason:text.min(1),now}),
  z.object({type:z.literal('pay-invoice'),id,payment:z.object({id,amountPence:money.positive(),reference:text.min(1).max(200),method:text.min(1).max(100),at:now}).strict()}),

@@ -5,6 +5,7 @@ import {database} from './db';
 import {users,sessions,auditLogs,settings,notifications,attachments,customers,orders,invoices,suppliers,products,purchaseOrders,supplierOrders} from './db/schema';
 import {currentStaff,login,logout,sessionCookie,hashPassword} from './auth';
 import {AppError,authorize,roles,type Staff} from './permissions';
+import {listStock,moveStock,saveLocation} from './services/inventory';
 import {listPurchases,savePurchase,transitionPurchase,listSupplierOrders,saveSupplierOrder,transitionSupplierOrder} from './services/purchasing';
 import {listProducts,saveProduct,productHistory,listSuppliers,saveSupplier} from './services/catalogue';
 import {readCommerce,mutateCommerce,importCommerce} from './services/commerce';
@@ -44,6 +45,11 @@ export async function handleApi(request:Request):Promise<Response> {
   if(path==='commerce'&&method==='GET')return json(await readCommerce(staff));
   if(path==='commerce'&&method==='POST')return json(await mutateCommerce(staff,await body(request)));
   if(path==='commerce/import'&&method==='POST')return json(await importCommerce(staff,await body(request)));
+  if(path==='inventory/orders'&&method==='GET'){authorize(staff,'inventory.write');return json((await db.select({id:orders.id}).from(orders)).map(v=>({id:v.id,name:'#'+v.id})));}
+  if(path==='inventory/purchases'&&method==='GET'){authorize(staff,'inventory.write');const rows=await db.select({id:purchaseOrders.id,name:purchaseOrders.number,status:purchaseOrders.status}).from(purchaseOrders);return json(rows.filter(v=>['Confirmed','Partially Received'].includes(v.status)));}
+  if(path==='inventory'&&method==='GET')return json(await listStock(staff));
+  if(path==='inventory/movements'&&method==='POST')return json(await moveStock(staff,await body(request)),201);
+  if(path==='inventory/locations'&&method==='POST')return json(await saveLocation(staff,await body(request)),201);
   if(path==='lookups'&&method==='GET'){
    const financial=['Management','Team Lead','Accounts','Customer Service & Sales'].includes(staff.role);
    const operational=['Management','Team Lead','Customer Service & Sales','Shopify Store Manager','Warehouse'].includes(staff.role);

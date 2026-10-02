@@ -33,7 +33,7 @@ const groups = [
     label: 'Operations',
     paths: [
       '/reviews',
-      '/purchasing',
+      '/purchasing', '/inventory',
       '/assembly',
       '/communications',
       '/documents',

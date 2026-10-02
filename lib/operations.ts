@@ -38,6 +38,7 @@ export const suppliers = [
   'Hypnos',
 ];
 export type Line = {
+  productId?: string;
   id: string;
   name: string;
   supplier: string;

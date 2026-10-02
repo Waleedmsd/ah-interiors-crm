@@ -1,6 +1,7 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
+import {apiRequest} from '@/lib/api-client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -18,6 +19,7 @@ import { parsePounds } from '@/lib/commerce';
 import { money } from '@/lib/demo-data';
 import { suppliers, routes, type Channel, type Route } from '@/lib/operations';
 type FormLine = {
+  productId?: string;
   id: number;
   name: string;
   supplier: string;
@@ -41,6 +43,9 @@ export function NewOrderForm() {
   const router = useRouter();
   const params = useSearchParams();
   const { mutate, ready, notify } = useWorkspace();
+  const [catalogue,setCatalogue]=useState<{id:string;name:string;sku:string;supplierId:string;supplierCostPence:number;sellingPricePence:number;details:{article?:string}}[]>([]);
+  const [supplierNames,setSupplierNames]=useState<{id:string;name:string}[]>([]);
+  useEffect(()=>{if(process.env.NEXT_PUBLIC_CRM_MODE==='preview')return;Promise.all([apiRequest<typeof catalogue>('/api/products'),apiRequest<typeof supplierNames>('/api/suppliers')]).then(([p,s])=>{setCatalogue(p);setSupplierNames(s);}).catch(()=>{});},[]);
   const [customerId, setCustomerId] = useState(params.get('customer') || '');
   const [channel, setChannel] = useState<Channel>('WhatsApp');
   const [sourceRef, setSourceRef] = useState('');
@@ -75,6 +80,7 @@ export function NewOrderForm() {
         channel,
         sourceRef,
         lines: lines.map((line) => ({
+          productId: line.productId,
           name: line.name,
           supplier: line.supplier,
           article: line.article,
@@ -94,7 +100,7 @@ export function NewOrderForm() {
       return;
     }
     notify(
-      'Order and invoice draft saved locally. Record payment before processing.',
+      'Order and invoice draft saved. Record payment before processing.',
     );
     router.push('/orders/' + result.id);
   }
@@ -161,7 +167,7 @@ export function NewOrderForm() {
               </div>
             </div>
             {lines.map((line, index) => (
-              <div className="order-form-line" key={line.id}>
+              <div className="order-form-line" key={line.id}>{!!catalogue.length&&<label>Choose catalogue product<select className="commerce-input" value={line.productId??""} onChange={e=>{const product=catalogue.find(v=>v.id===e.target.value);if(product)update(line.id,{productId:product.id,name:product.name,supplier:supplierNames.find(v=>v.id===product.supplierId)?.name??"",article:product.details.article??"",price:(product.sellingPricePence/100).toFixed(2)});else update(line.id,{productId:undefined});}}><option value="">Custom item</option>{catalogue.map(v=><option key={v.id} value={v.id}>{v.name} · {v.sku}</option>)}</select></label>}
                 <div className="line-number-row">
                   <span>ITEM {String(index + 1).padStart(2, '0')}</span>
                   <Button

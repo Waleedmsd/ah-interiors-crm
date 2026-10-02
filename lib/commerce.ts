@@ -60,6 +60,7 @@ export type CommerceState = {
   nextInvoice: number;
 };
 export type NewOrderLine = {
+  productId?: string;
   name: string;
   supplier: string;
   article: string;
@@ -594,6 +595,7 @@ export function applyCommerce(
         id: 'l' + (index + 1),
         name: line.name.trim(),
         supplier: line.supplier,
+        productId: line.productId,
         sku: 'Custom item',
         article: line.article.trim(),
         quantity: line.quantity,
