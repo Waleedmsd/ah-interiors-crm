@@ -32,6 +32,7 @@ export type Payment = {
   method: string;
   at: number;
 };
+export type Refund = {id:string;amountPence:number;reference:string;method:string;at:number;approvalId?:string};
 export type Invoice = {
   id: string;
   customerId: string;
@@ -44,6 +45,7 @@ export type Invoice = {
   taxBps: number;
   notes: string;
   payments: Payment[];
+  refunds?: Refund[];
   customerSnapshot?: Customer;
   createdAt: number;
   issuedAt?: number;
@@ -103,6 +105,7 @@ export type CommerceAction =
   | { type: 'edit-invoice'; id: string; input: NewInvoiceInput }
   | { type: 'issue-invoice'; id: string; now: number }
   | { type: 'pay-invoice'; id: string; payment: Payment }
+  | { type: 'refund-invoice'; id: string; refund: Refund; approvalId?: string }
   | { type: 'void-invoice'; id: string; reason: string; now: number }
   | {
       type: 'invoice-email';
@@ -125,7 +128,7 @@ export function parsePounds(value: string): number {
 export const dateKey = (now: number) =>
   new Date(now).toISOString().slice(0, 10);
 export const invoiceTotals = (
-  invoice: Pick<Invoice, 'lines' | 'discountPence' | 'taxBps' | 'payments'>,
+  invoice: Pick<Invoice, 'lines' | 'discountPence' | 'taxBps' | 'payments' | 'refunds'>,
 ) => {
   const subtotal = invoice.lines.reduce(
     (sum, line) => sum + line.quantity * line.unitPence,
@@ -134,24 +137,26 @@ export const invoiceTotals = (
   const net = subtotal - invoice.discountPence;
   const tax = Math.round((net * invoice.taxBps) / 10000);
   const total = net + tax;
-  const paid = invoice.payments.reduce(
-    (sum, payment) => sum + payment.amountPence,
-    0,
-  );
+  const paid=invoice.payments.reduce((sum,payment)=>sum+payment.amountPence,0);
+  const refunded=(invoice.refunds??[]).reduce((sum,refund)=>sum+refund.amountPence,0);
+  const netPaid=paid-refunded;
   return {
     subtotal,
     discount: invoice.discountPence,
     tax,
     total,
     paid,
-    balance: total - paid,
+    refunded,
+    netPaid,
+    balance: total-paid+refunded,
   };
 };
 export function invoiceStatus(
   invoice: Invoice,
-): 'Draft' | 'Paid' | 'Partially paid' | 'Due' | 'Void' {
+): 'Draft' | 'Paid' | 'Partially paid' | 'Due' | 'Void' | 'Part refunded' | 'Refunded' {
   if (invoice.lifecycle !== 'Issued') return invoice.lifecycle;
   const totals = invoiceTotals(invoice);
+  if(totals.refunded>0&&totals.netPaid<totals.total)return totals.netPaid===0?'Refunded':'Part refunded';
   return totals.balance === 0
     ? 'Paid'
     : totals.paid > 0
@@ -178,7 +183,7 @@ export function accountTotals(invoices: Invoice[], now: number) {
       const value = invoiceTotals(invoice);
       return {
         invoiced: sum.invoiced + value.total,
-        paid: sum.paid + value.paid,
+        paid: sum.paid + value.netPaid,
         outstanding: sum.outstanding + value.balance,
         overdue:
           sum.overdue + (invoiceOverdue(invoice, now) ? value.balance : 0),
@@ -385,13 +390,13 @@ function syncInvoiceOrder(
               invoice: invoice.id,
               paid:
                 invoice.lifecycle === 'Issued'
-                  ? invoiceTotals(invoice).paid / 100
+                  ? invoiceTotals(invoice).netPaid / 100
                   : 0,
               paymentVerified:
                 invoice.lifecycle === 'Issued' &&
                 invoiceTotals(invoice).balance === 0,
               paymentReference:
-                invoice.payments.at(-1)?.reference ||
+                invoice.refunds?.at(-1)?.reference || invoice.payments.at(-1)?.reference ||
                 'Awaiting verified payment',
               events: [
                 ...order.events,
@@ -803,7 +808,7 @@ export function applyCommerce(
         'Enter a positive payment no greater than the balance, with its reference.',
       );
     if (
-      invoice.payments.some(
+      [...invoice.payments,...(invoice.refunds??[])].some(
         (item) =>
           item.reference.trim().toLowerCase() ===
           payment.reference.trim().toLowerCase(),
@@ -820,9 +825,16 @@ export function applyCommerce(
     };
     at = payment.at;
     title = 'Payment recorded · local ledger';
+  } else if(action.type==='refund-invoice'){
+    const refund=action.refund;const totals=invoiceTotals(invoice);
+    if(invoice.lifecycle!=='Issued')return fail('Only issued invoices can be refunded.');
+    if((invoice.refunds??[]).some(item=>item.id===refund.id))return {state,id:invoice.id};
+    if(!validMoney(refund.amountPence)||refund.amountPence<=0||refund.amountPence>totals.paid-totals.refunded||!refund.reference.trim()||!refund.method.trim()||!Number.isFinite(refund.at))return fail('Refund must be positive, match received payments and include its reference.');
+    if([...invoice.payments,...(invoice.refunds??[])].some(item=>item.reference.trim().toLowerCase()===refund.reference.trim().toLowerCase()))return fail('This payment or refund reference is already recorded.');
+    updated={...invoice,refunds:[...(invoice.refunds??[]),{...refund,reference:refund.reference.trim()}],emailDraft:undefined};at=refund.at;title='Refund recorded';
   } else if (action.type === 'void-invoice') {
     if (invoice.lifecycle === 'Void') return { state, id: invoice.id };
-    if (invoice.payments.length)
+    if (invoice.payments.length || invoice.refunds?.length)
       return fail(
         'A paid or partially paid invoice cannot be voided. A separate refund or credit process is required.',
       );
@@ -862,7 +874,7 @@ export function applyCommerce(
   return {
     id: updated.id,
     state:
-      action.type === 'pay-invoice' ||
+      action.type === 'pay-invoice' || action.type==='refund-invoice' ||
       action.type === 'issue-invoice' ||
       action.type === 'void-invoice'
         ? syncInvoiceOrder(next, updated, title, at)
@@ -883,6 +895,7 @@ export function parseSavedCommerce(raw: string): CommerceState | null {
       )
     )
       return null;
+    value.invoices=value.invoices.map(item=>({...item,refunds:item.refunds??[]}));
     if (
       new Set(value.customers.map((item) => item.id)).size !==
         value.customers.length ||
@@ -909,12 +922,23 @@ export function parseSavedCommerce(raw: string): CommerceState | null {
         (item) =>
           !['Draft', 'Issued', 'Void'].includes(item.lifecycle) ||
           !Array.isArray(item.payments) ||
+          !Array.isArray(item.refunds) ||
           !Array.isArray(item.history) ||
           validateInvoiceInput(value, { ...item, now: PREVIEW_NOW }) ||
           item.payments.some(
             (payment) =>
               !validMoney(payment.amountPence) || payment.amountPence <= 0,
           ) ||
+          [...item.payments,...(item.refunds??[])].some(entry =>
+            typeof entry.id !== 'string' || !entry.id.trim() ||
+            !validMoney(entry.amountPence) || entry.amountPence <= 0 ||
+            typeof entry.reference !== 'string' || !entry.reference.trim() ||
+            typeof entry.method !== 'string' || !entry.method.trim() ||
+            !Number.isFinite(entry.at) || entry.at < 0) ||
+          new Set(item.refunds?.map(entry=>entry.id)).size !== item.refunds?.length ||
+          new Set([...item.payments,...(item.refunds??[])].map(entry=>entry.reference.trim().toLowerCase())).size !== item.payments.length+(item.refunds?.length??0) ||
+          ((item.refunds?.length??0)>0 && item.lifecycle!=='Issued') ||
+          invoiceTotals(item).netPaid < 0 ||
           invoiceTotals(item).balance < 0,
       )
     )
@@ -1046,7 +1070,7 @@ export function parseSavedCommerce(raw: string): CommerceState | null {
       );
       if (linked) {
         const ledgerPaid =
-          linked.lifecycle === 'Issued' ? invoiceTotals(linked).paid : 0;
+          linked.lifecycle === 'Issued' ? invoiceTotals(linked).netPaid : 0;
         if (
           order.invoice !== linked.id ||
           pence(order.paid) !== ledgerPaid ||

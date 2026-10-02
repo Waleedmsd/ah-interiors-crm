@@ -12,6 +12,7 @@ import {listPurchases,savePurchase,transitionPurchase,listSupplierOrders,saveSup
 import {listProducts,saveProduct,productHistory,listSuppliers,saveSupplier} from './services/catalogue';
 import {readCommerce,mutateCommerce,importCommerce} from './services/commerce';
 import {fileStorage,detectedMime} from './storage/files';
+import {dashboardData,reportData,searchRecords} from './services/reporting';
 export function json(data:unknown,status=200,headers:Record<string,string>={}) {return Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});}
 export function checkOrigin(request:Request) {
  if(['GET','HEAD','OPTIONS'].includes(request.method))return;
@@ -45,6 +46,9 @@ export async function handleApi(request:Request):Promise<Response> {
   if(path==='auth/logout'&&method==='POST'){await logout(request);return json({ok:true},200,{'Set-Cookie':sessionCookie('',0)});}
   const staff=await currentStaff(request);
   if(path==='auth/me'&&method==='GET')return json({user:staff});
+  if(path==='dashboard'&&method==='GET')return json(await dashboardData(staff));
+  if(path==='reports'&&method==='GET')return json(await reportData(staff));
+  if(path==='search'&&method==='GET')return json(await searchRecords(staff,url.searchParams.get('q')??''));
   if(path==='commerce'&&method==='GET')return json(await readCommerce(staff));
   if(path==='commerce'&&method==='POST')return json(await mutateCommerce(staff,await body(request)));
   if(path==='commerce/import'&&method==='POST')return json(await importCommerce(staff,await body(request)));

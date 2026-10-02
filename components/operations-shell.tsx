@@ -15,6 +15,8 @@ import {
   useWorkspace,
 } from '@/components/workspace-provider';
 import { AssistantPanel } from '@/components/assistant-panel';
+import { apiRequest } from '@/lib/api-client';
+ type SearchResult={id:string;type:string;label:string;detail:string;href:string};
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -52,6 +54,7 @@ const pageTitles: Record<string, string> = {
   '/documents': 'Documents',
   '/customers': 'Customers',
   '/settings': 'Settings',
+  '/reports': 'Reports',
 };
 
 export function OperationsShell({ children }: { children: React.ReactNode }) {
@@ -72,6 +75,8 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
 function Shell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery,setSearchQuery]=useState("");
+  const [searchResults,setSearchResults]=useState<SearchResult[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const pathname = usePathname() || '/';
@@ -115,6 +120,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     window.addEventListener('keydown', shortcut);
     return () => window.removeEventListener('keydown', shortcut);
   }, []);
+  useEffect(()=>{if(searchQuery.trim().length<2){setSearchResults([]);return;}const timer=setTimeout(()=>{apiRequest<SearchResult[]>('/api/search?q='+encodeURIComponent(searchQuery)).then(setSearchResults).catch(()=>setSearchResults([]));},180);return()=>clearTimeout(timer);},[searchQuery]);
   function go(path: string) {
     setSearchOpen(false);
     router.push(path);
@@ -205,7 +211,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             Find pages and customer orders
           </DialogDescription>
           <Command>
-            <CommandInput placeholder="Search pages, orders, customers…" />
+            <CommandInput placeholder="Search pages, orders, customers, products…" value={searchQuery} onValueChange={setSearchQuery} />
             <CommandList className="!max-h-[420px]">
               <CommandEmpty>No results found.</CommandEmpty>
               <CommandGroup heading="Pages">
@@ -262,6 +268,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                   </CommandItem>
                 ))}
               </CommandGroup>
+              {searchResults.length>0&&<CommandGroup heading="Shared CRM records">{searchResults.map((item)=><CommandItem key={item.type+item.id} value={item.type+" "+item.label+" "+item.detail} onSelect={()=>go(item.href)} className="!py-3"><span className="text-xs text-muted-foreground">{item.type}</span><strong className="ml-2">{item.label}</strong><span className="ml-auto text-xs text-muted-foreground">{item.detail}</span></CommandItem>)}</CommandGroup>}
               <CommandGroup heading="Customers">
                 {customers.map((customer) => (
                   <CommandItem

@@ -577,3 +577,28 @@ test('unexpected external storage changes block stale writes and preserve newer 
   );
   first.__test.dispose();
 });
+
+
+test('refunds keep invoice, order and restored ledger balances consistent', () => {
+  let state=pay(issue(fresh()),30109).state;
+  const invoiceId=getInvoice(state).id;
+  const action={type:'refund-invoice',id:invoiceId,refund:{id:'refund-1',amountPence:6109,reference:'REFUND-1',method:'Bank transfer',at:now}};
+  const result=applyCommerce(state,action);assert.equal(result.error,undefined);state=result.state;
+  const totals=invoiceTotals(getInvoice(state));assert.equal(totals.netPaid,24000);assert.equal(totals.balance,6109);
+  assert.equal(getOrder(state).paid,240);assert.equal(getOrder(state).paymentVerified,false);
+  assert.equal(invoiceStatus(getInvoice(state)),'Part refunded');assert.ok(parseSavedCommerce(JSON.stringify(state)));
+  assert.equal(applyCommerce(state,action).state,state);
+  assert.ok(pay(state,100,' refund-1 ','new-payment').error);
+  assert.ok(applyCommerce(state,{...action,refund:{...action.refund,id:'refund-2',reference:'OVER',amountPence:24001}}).error);
+  const invalid=plain(state);getInvoice(invalid).refunds[0].amountPence=30110;assert.equal(parseSavedCommerce(JSON.stringify(invalid)),null);
+  const duplicate=plain(state);getInvoice(duplicate).refunds.push({...getInvoice(duplicate).refunds[0],id:'copy'});assert.equal(parseSavedCommerce(JSON.stringify(duplicate)),null);
+  const replenished=pay(state,6109,'REPAYMENT','repayment');assert.equal(replenished.error,undefined);assert.equal(invoiceStatus(getInvoice(replenished.state)),'Paid');assert.ok(parseSavedCommerce(JSON.stringify(replenished.state)));
+});
+
+test('refunding the whole deposit records Refunded without losing payment history', () => {
+ const state=pay(issue(fresh()),1000).state;const invoice=getInvoice(state);
+ const result=applyCommerce(state,{type:'refund-invoice',id:invoice.id,refund:{id:'deposit-return',amountPence:1000,reference:'DEPOSIT-RETURN',method:'Card',at:now}});
+ assert.equal(result.error,undefined);assert.equal(invoiceStatus(getInvoice(result.state)),'Refunded');assert.equal(getOrder(result.state).paid,0);
+ assert.equal(getInvoice(result.state).payments.length,1);assert.ok(parseSavedCommerce(JSON.stringify(result.state)));
+ assert.ok(applyCommerce(result.state,{type:'void-invoice',id:invoice.id,reason:'Refunded',now}).error);
+});

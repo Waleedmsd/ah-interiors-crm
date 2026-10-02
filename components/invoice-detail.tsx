@@ -32,6 +32,7 @@ import {
 } from '@/lib/commerce';
 import { InvoiceStatus, pounds } from '@/components/invoice-list';
 import { InvoiceEditor } from '@/components/invoice-editor';
+import {InvoiceRefundAction} from '@/components/invoice-refund-action';
 const momentLabel = (at: number) =>
   new Intl.DateTimeFormat('en-GB', {
     dateStyle: 'medium',
@@ -222,6 +223,7 @@ export function InvoiceDetail({ id }: { id: string }) {
                   <dt>Payments recorded</dt>
                   <dd>{pounds(totals.paid)}</dd>
                 </div>
+                {totals.refunded>0&&<div><dt>Refunds recorded</dt><dd>−{pounds(totals.refunded)}</dd></div>}
                 <div className="balance-row">
                   <dt>
                     {invoice.lifecycle === 'Draft'
@@ -384,6 +386,7 @@ function InvoiceActions({
             pounds(totals.total) +
             '\nPayments recorded: ' +
             pounds(totals.paid) +
+            '\nRefunds recorded: ' + pounds(totals.refunded) +
             '\nBalance due: ' +
             pounds(totals.balance) +
             '\nDue date: ' +
@@ -440,11 +443,11 @@ function InvoiceActions({
             <progress
               className="payment-progress"
               aria-label="Invoice payment progress"
-              value={totals.paid}
+              value={totals.netPaid}
               max={totals.total}
             />
             <p className="muted">
-              {pounds(totals.paid)} of {pounds(totals.total)} recorded
+              {pounds(totals.netPaid)} of {pounds(totals.total)} retained after refunds
             </p>
           </>
         )}

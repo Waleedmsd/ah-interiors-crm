@@ -27,6 +27,7 @@ import { useAuth } from '@/components/auth-boundary';
 import { useWorkspace } from '@/components/workspace-provider';
 import { useUIPreferences } from '@/components/ui-preferences-provider';
 import { moduleForPath } from '@/lib/ui-preferences';
+import { hasPermission } from '@/server/permissions';
 const groups = [
   { label: 'Workspace', paths: ['/', '/orders', '/customers', '/products', '/suppliers'] },
   {
@@ -40,6 +41,7 @@ const groups = [
     ],
   },
   { label: 'Finance', paths: ['/invoices','/expenses'] },
+  { label: 'Insights', paths: ['/reports'] },
 ];
 export function activeRoute(pathname: string, href: string) {
   if (href === '/') return pathname === '/';
@@ -135,6 +137,7 @@ export function StudioSidebar({
   onNavigate?: () => void;
 }) {
   const { cases, setAssistantOpen } = useWorkspace();
+  const {user:staff}=useAuth();
   const { preferences, update, ready } = useUIPreferences();
   const reduced = !ready || preferences.motion === 'reduced';
   const [narrow, setNarrow] = useState(false);
@@ -153,7 +156,7 @@ export function StudioSidebar({
   ).length;
   const items = [
     ...navigation.filter(
-      (item) => item.href !== '/accounts' && item.href !== '/invoices',
+      (item) => item.href !== '/accounts' && item.href !== '/invoices' && (!!staff && (hasPermission(staff,'commerce.read') || item.href === '/reports' && hasPermission(staff,'reports.read'))),
     ),
     { href: '/invoices', label: 'Invoices', icon: FileText, index: 'F' },
   ];

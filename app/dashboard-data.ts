@@ -6,6 +6,7 @@ import {
   FileCheck2,
   FileText,
   LayoutDashboard,
+  BarChart3,
   Mail,
   Truck,
   Users,
@@ -66,6 +67,7 @@ export const orders: Order[] = [
 ];
 
 export const navigation = [
+  {index:'REP',label:'Reports',icon:BarChart3,href:'/reports'},
   {index:'DEL',label:'Deliveries',icon:ClipboardList,href:'/deliveries'},
   {index:'ASM',label:'Assembly jobs',icon:ClipboardList,href:'/assembly-jobs'},
   {index:'FLR',label:'Flooring',icon:ClipboardList,href:'/flooring'},

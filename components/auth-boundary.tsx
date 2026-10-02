@@ -3,6 +3,7 @@ import {createContext,useContext,useEffect,useState,type ReactNode} from 'react'
 import {StaffWork} from '@/components/staff-work';
 import {hasPermission} from '@/server/permissions';
 import {apiRequest} from '@/lib/api-client';
+import {ReportsWorkspace} from '@/components/reports-workspace';
 import type {Staff} from '@/server/permissions';
 const AuthContext=createContext<{user:Staff|null;logout:()=>Promise<void>}>({user:null,logout:async()=>{}});
 export const useAuth=()=>useContext(AuthContext);
@@ -14,7 +15,7 @@ export function AuthBoundary({children}:{children:ReactNode}) {
  if(preview)return children;
  if(loading)return <main className="page"><p role="status">Loading staff session…</p></main>;
  if(!user)return <LoginForm initialError={error} onLogin={staff=>{setUser(staff); if(window.location.pathname==="/login") window.location.assign("/");}}/>;
- return <AuthContext.Provider value={{user,logout}}>{hasPermission(user,"commerce.read")?children:<StaffWork/>}</AuthContext.Provider>;
+ return <AuthContext.Provider value={{user,logout}}>{hasPermission(user,"commerce.read")?children:hasPermission(user,"reports.read")?<ReportsWorkspace/>:<StaffWork/>}</AuthContext.Provider>;
 }
 function LoginForm({initialError,onLogin}:{initialError:string;onLogin:(staff:Staff)=>void}) {
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [error,setError]=useState(initialError);const [busy,setBusy]=useState(false);

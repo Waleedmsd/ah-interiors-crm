@@ -7,12 +7,12 @@ import {resolve} from 'node:path';
 import {migrate} from 'drizzle-orm/node-postgres/migrator';
 import {eq} from 'drizzle-orm';
 import {database,closeDatabase} from '../../server/db';
-import {users,sessions,auditLogs,customers,workspaces,settings,priceHistory,products,purchaseItems,purchaseOrders,stockLocations,stockBalances,stockReservations,deliveryJobs,assemblyJobs} from '../../server/db/schema';
+import {users,sessions,auditLogs,customers,workspaces,settings,priceHistory,products,purchaseItems,purchaseOrders,stockLocations,stockBalances,stockReservations,deliveryJobs,assemblyJobs,payments} from '../../server/db/schema';
 import {handleApi} from '../../server/api';
 import {hashPassword,verifyPassword} from '../../server/auth';
 import {blankDetails} from '../../lib/business-modules';
 import {emptyCosts} from '../../lib/margin';
-import {createCommerceState} from '../../lib/commerce';
+import {createCommerceState,invoiceTotals,parseSavedCommerce,type CommerceState,type CommerceAction} from '../../lib/commerce';
 import {projectCommerce,workspaceId} from '../../server/services/commerce';
 const testFiles=resolve('.runtime','test-files',String(process.pid));
 const origin='http://localhost:3001';const password='Synthetic-test-password-2026';
@@ -26,7 +26,7 @@ before(async()=>{
  const name='ah_crm_test_'+process.pid;await admin.query(`CREATE DATABASE "${name}"`);await admin.end();
  source.pathname='/'+name;process.env.DATABASE_URL=source.toString();process.env.ATTACHMENT_ROOT=testFiles;process.env.APP_ORIGIN=origin;
  await migrate(database(),{migrationsFolder:'./drizzle'});
- await database().insert(settings).values({key:'business',value:{vatBps:2000,marginThresholds:{excellent:3600,strong:3200,acceptable:2900},supplierConfirmationDays:3}});
+ await database().insert(settings).values({key:'business',value:{vatBps:2000,marginThresholds:{excellent:3600,strong:3200,acceptable:2900},supplierConfirmationDays:3,refundApprovalPence:5000}});
  managerId=randomUUID();const hash=await hashPassword(password);
  await database().insert(users).values([{id:managerId,name:'Test Manager',email:'manager@test.invalid',role:'Management',department:'Management',passwordHash:hash},{id:randomUUID(),name:'Test Warehouse',email:'warehouse@test.invalid',role:'Warehouse',department:'Warehouse',passwordHash:hash}]);
  await database().transaction(async tx=>{const data=createCommerceState();await projectCommerce(tx,data);await tx.insert(workspaces).values({id:workspaceId,data});});
@@ -156,3 +156,41 @@ test('attachments require linked record access and persist metadata and bytes',a
  const bad=await handleApi(new Request(origin+'/api/attachments?entity=customer&entityId='+row.id,{method:'POST',headers:{origin,cookie:managerCookie,'x-filename':'script.html'},body:'<script>test</script>'}));assert.equal(bad.status,415);
 });
 test('logout invalidates the database session',async()=>{assert.equal((await request('auth/logout','POST')).status,200);assert.equal((await request('auth/me')).status,401);});
+
+test('live dashboard, reports and global search are authenticated and role-scoped',async()=>{
+ const login=await request('auth/login','POST',{email:'manager@test.invalid',password},'');managerCookie=login.headers.get('set-cookie')!.split(';')[0];
+ const dashboard=await request('dashboard');assert.equal(dashboard.status,200);const metrics=await dashboard.json() as any;assert.equal(typeof metrics.sales.monthPence,'number');assert.equal(typeof metrics.delivery.today,'number');
+ const reports=await request('reports');assert.equal(reports.status,200);const report=await reports.json() as any;assert.ok(Array.isArray(report.salesByChannel));
+ const search=await request('search?q=John');assert.equal(search.status,200);const matches=await search.json() as any[];assert.ok(matches.some(v=>v.type==='Customer'&&v.label==='John Smith'));
+ assert.equal((await request('reports','GET',undefined,warehouseCookie)).status,403);
+ const warehouseSearch=await request('search?q=John','GET',undefined,warehouseCookie);assert.deepEqual(await warehouseSearch.json(),[]);
+});
+
+
+
+test('refunds enforce exact single-use approval, permissions and atomic ledger projection',async()=>{
+ const mutate=async(action:CommerceAction,cookie=managerCookie)=>{const [ledger]=await database().select().from(workspaces);return request('commerce','POST',{requestId:randomUUID(),version:ledger.version,action},cookie);};
+ const [ledger]=await database().select().from(workspaces);
+ const created=await mutate({type:'create-order',input:{requestId:randomUUID(),customerId:ledger.data.customers[0].id,channel:'WhatsApp',sourceRef:'REFUND-TEST',lines:[{name:'Refund test item',supplier:'Rauch',article:'',quantity:1,unitPence:20000,options:'',route:'Flat Pack Pro'}],deliveryPence:0,note:'Synthetic refund test',now:Date.now()}});
+ assert.equal(created.status,200);const order=await created.json() as {id:string;data:CommerceState};const invoice=order.data.invoices.find(row=>row.orderId===order.id)!;
+ assert.equal((await mutate({type:'issue-invoice',id:invoice.id,now:Date.now()})).status,200);
+ assert.equal((await mutate({type:'pay-invoice',id:invoice.id,payment:{id:randomUUID(),amountPence:20000,reference:'TEST-RECEIPT',method:'Bank transfer',at:Date.now()}})).status,200);
+ const refund:CommerceAction={type:'refund-invoice',id:invoice.id,refund:{id:randomUUID(),amountPence:6000,reference:'TEST-REFUND',method:'Bank transfer',at:0}};
+ assert.equal((await mutate(refund,warehouseCookie)).status,403);
+ assert.equal((await mutate(refund)).status,422);
+ const approvalInput={title:'Synthetic refund approval',assignedUserId:managerId,details:{...blankDetails('approvals'),approvalType:'Refund',reason:'Synthetic verified return',linkedType:'invoice',linkedId:invoice.id,amountPence:6000}};
+ const ownResponse=await request('operations/approvals','POST',approvalInput);assert.equal(ownResponse.status,201);const own=await ownResponse.json() as {id:string;version:number};
+ assert.equal((await request('operations/approvals/'+own.id,'PATCH',{version:own.version,status:'Approved'})).status,422);
+ const approvalResponse=await request('operations/approvals','POST',approvalInput,warehouseCookie);assert.equal(approvalResponse.status,201);const approval=await approvalResponse.json() as {id:string;number:string;version:number};
+ assert.equal((await request('operations/approvals/'+approval.id,'PATCH',{version:approval.version,status:'Approved'})).status,200);
+ assert.equal((await mutate({...refund,approvalId:approval.number,refund:{...refund.refund,amountPence:7000}})).status,422);
+ const [before]=await database().select().from(workspaces);const payload={requestId:randomUUID(),version:before.version,action:{...refund,approvalId:approval.number}};
+ const saved=await request('commerce','POST',payload);assert.equal(saved.status,200);const result=await saved.json() as {data:CommerceState};const updated=result.data.invoices.find(row=>row.id===invoice.id)!;
+ assert.equal(updated.refunds![0].approvalId,approval.id);assert.ok(updated.refunds![0].at>0);assert.equal(invoiceTotals(updated).netPaid,14000);
+ assert.equal(result.data.operations.cases.find(row=>row.id===order.id)!.paid,140);assert.ok(parseSavedCommerce(JSON.stringify(result.data)));
+ assert.equal((await request('commerce','POST',payload)).status,200);
+ const projected=await database().select().from(payments).where(eq(payments.invoiceId,invoice.id));assert.equal(projected.length,2);assert.equal(projected.reduce((sum,row)=>sum+row.amountPence,0),14000);
+ assert.equal((await mutate({...refund,approvalId:approval.id,refund:{...refund.refund,id:randomUUID(),reference:'SECOND-REFUND'}})).status,422);
+ assert.equal((await mutate({...refund,refund:{...refund.refund,id:randomUUID(),amountPence:1000,reference:'SMALL-REFUND'}})).status,200);
+ const audit=await database().select().from(auditLogs).where(eq(auditLogs.entityId,invoice.id));assert.equal(audit.filter(row=>row.action==='refund-invoice').length,2);
+});

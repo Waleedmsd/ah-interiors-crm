@@ -54,3 +54,11 @@ Set `PG_DUMP_PATH` to your PostgreSQL `pg_dump` executable and run `npx tsx --en
 Restore into an EMPTY replacement database using the matching PostgreSQL tools: configure `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` in a secure shell, then `pg_restore --exit-on-error --no-owner --dbname <replacement-database> <backup>/database.dump`. Copy `<backup>/attachments` into the configured storage root. Point a staging app at the replacement, verify staff login, invoice balances, files and counts, then switch production deliberately. Test restores regularly. Keep secrets and backup files out of source control.
 
 Migrations are additive for this stage. Roll back application code only to a version compatible with the migrated schema. For a failed schema rollout, restore the pre-migration backup into a replacement database; do not drop business tables to undo changes. Generated migration files and metadata belong in Git.
+
+## Shared dashboard, reporting and refunds
+
+The home dashboard reads shared business records through /api/dashboard. The /reports page uses /api/reports, and global search uses /api/search with role-filtered results. Reporting-only staff receive aggregate sales data; cost and profit summaries are restricted to Management, Team Lead and Accounts. Profit summaries identify how many orders have verified supplier costs.
+
+Management and Accounts can record an already-sent refund from an issued invoice. This records an accounting event; it does not send money through a bank or payment processor. Refunds reduce net payments and reopen the invoice/order balance; they do not cancel the sale or issue a credit note. Payment and refund histories remain intact, and the invoice displays both before its recalculated balance.
+
+Above the management setting refundApprovalPence, first create a Refund request in Management approvals, link it to the invoice ID, and enter its exact amount. A different manager must approve it. Enter its APR reference on the refund form. Each approval can be used once; retries with the same request ID remain safe. The server stores the approved record ID on the refund and audits the invoice change in the same transaction. The payment projection represents refunds as negative amounts.

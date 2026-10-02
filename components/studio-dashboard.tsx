@@ -15,6 +15,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { useWorkspace } from '@/components/workspace-provider';
+import { LiveBusinessSnapshot } from '@/components/live-business-snapshot';
 import { StudioReveal } from '@/components/studio-motion';
 import { ProcessButton } from '@/components/process-button';
 import { PageIntro, Panel, Stat, StatusPill } from '@/components/page-ui';
@@ -106,6 +107,7 @@ export function StudioDashboard() {
           </Link>
         }
       />
+      <LiveBusinessSnapshot />
       <StudioReveal className="metric-grid">
         <Stat
           label="Active orders"

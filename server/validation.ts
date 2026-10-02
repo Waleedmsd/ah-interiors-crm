@@ -23,7 +23,7 @@ export const commerceAction=z.discriminatedUnion('type',[
  z.object({type:z.literal('create-invoice'),id,input:invoiceInput}),z.object({type:z.literal('edit-invoice'),id,input:invoiceInput}),
  z.object({type:z.literal('issue-invoice'),id,now}), z.object({type:z.literal('void-invoice'),id,reason:text.min(1),now}),
  z.object({type:z.literal('pay-invoice'),id,payment:z.object({id,amountPence:money.positive(),reference:text.min(1).max(200),method:text.min(1).max(100),at:now}).strict()}),
+ z.object({type:z.literal('refund-invoice'),id,approvalId:id.optional(),refund:z.object({id,amountPence:money.positive(),reference:text.min(1).max(200),method:text.min(1).max(100),at:now}).strict()}),
  z.object({type:z.literal('invoice-email'),id,to:z.email(),subject:text.min(1).max(500),body:text.min(1),now}),
 ]);
 export const mutationInput=z.object({requestId:z.uuid(),version:z.number().int().positive(),action:commerceAction}).strict();
-
