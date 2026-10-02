@@ -5,6 +5,7 @@ import {database} from './db';
 import {users,sessions,auditLogs,settings,notifications,attachments,customers,orders,invoices} from './db/schema';
 import {currentStaff,login,logout,sessionCookie,hashPassword} from './auth';
 import {AppError,authorize,roles,type Staff} from './permissions';
+import {listProducts,saveProduct,productHistory,listSuppliers,saveSupplier} from './services/catalogue';
 import {readCommerce,mutateCommerce,importCommerce} from './services/commerce';
 import {fileStorage,detectedMime} from './storage/files';
 export function json(data:unknown,status=200,headers:Record<string,string>={}) {return Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});}
@@ -41,6 +42,13 @@ export async function handleApi(request:Request):Promise<Response> {
   if(path==='commerce'&&method==='GET')return json(await readCommerce(staff));
   if(path==='commerce'&&method==='POST')return json(await mutateCommerce(staff,await body(request)));
   if(path==='commerce/import'&&method==='POST')return json(await importCommerce(staff,await body(request)));
+  if(path==='products'&&method==='GET')return json(await listProducts(staff));
+  if(path==='products'&&method==='POST')return json(await saveProduct(staff,await body(request)),201);
+  if(/^products\/[^/]+\/history$/.test(path)&&method==='GET')return json(await productHistory(staff,path.split('/')[1]));
+  if(/^products\/[^/]+$/.test(path)&&method==='PUT')return json(await saveProduct(staff,await body(request),path.split('/')[1]));
+  if(path==='suppliers'&&method==='GET')return json(await listSuppliers(staff));
+  if(path==='suppliers'&&method==='POST')return json(await saveSupplier(staff,await body(request)),201);
+  if(/^suppliers\/[^/]+$/.test(path)&&method==='PUT')return json(await saveSupplier(staff,await body(request),path.split('/')[1]));
   if(path==='users'&&method==='GET'){
    authorize(staff,'users.write');return json(await db.select({id:users.id,name:users.name,email:users.email,phone:users.phone,role:users.role,department:users.department,active:users.active,lastLogin:users.lastLogin,createdAt:users.createdAt,updatedAt:users.updatedAt}).from(users));
   }

@@ -73,3 +73,22 @@ export const requests = pgTable('idempotency_requests', {
   id:text('id').primaryKey(), userId:text('user_id').notNull().references(()=>users.id),
   digest:text('digest').notNull(), result:jsonb('result').notNull(), createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),
 });
+
+export const suppliers = pgTable('suppliers',{
+ id:text('id').primaryKey(),name:text('name').notNull(),code:text('code').notNull().unique(),active:boolean('active').notNull().default(true),
+ details:jsonb('details').$type<Record<string,unknown>>().notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const products = pgTable('products',{
+ id:text('id').primaryKey(),name:text('name').notNull(),sku:text('sku').notNull().unique(),supplierId:text('supplier_id').notNull().references(()=>suppliers.id),
+ supplierSku:text('supplier_sku').notNull(),category:text('category').notNull(),status:text('status').notNull().default('Active'),
+ supplierCostPence:integer('supplier_cost_pence').notNull(),sellingPricePence:integer('selling_price_pence').notNull(),
+ details:jsonb('details').$type<Record<string,unknown>>().notNull(),version:integer('version').notNull().default(1),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+},t=>[index('products_name_idx').on(t.name),index('products_supplier_sku_idx').on(t.supplierSku)]);
+export const priceHistory = pgTable('product_price_history',{
+ id:bigserial('id',{mode:'number'}).primaryKey(),productId:text('product_id').notNull().references(()=>products.id),
+ supplierCostPence:integer('supplier_cost_pence').notNull(),sellingPricePence:integer('selling_price_pence').notNull(),
+ previousSupplierCostPence:integer('previous_supplier_cost_pence'),previousSellingPricePence:integer('previous_selling_price_pence'),
+ changedBy:text('changed_by').notNull().references(()=>users.id),at:timestamp('at',{withTimezone:true}).notNull().defaultNow(),
+});
+

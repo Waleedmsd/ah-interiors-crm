@@ -66,6 +66,8 @@ export const orders: Order[] = [
 ];
 
 export const navigation = [
+  {index:'P',label:'Products',icon:Boxes,href:'/products'},
+  {index:'S',label:'Suppliers',icon:Boxes,href:'/suppliers'},
   { index: '01', label: 'Today', icon: LayoutDashboard, href: '/' },
   { index: 'R', label: 'Review & approve', icon: FileCheck2, href: '/reviews' },
   { index: 'AI', label: 'Assistant', icon: Bot, href: '/assistant' },

@@ -28,7 +28,7 @@ import { useWorkspace } from '@/components/workspace-provider';
 import { useUIPreferences } from '@/components/ui-preferences-provider';
 import { moduleForPath } from '@/lib/ui-preferences';
 const groups = [
-  { label: 'Workspace', paths: ['/', '/orders', '/customers'] },
+  { label: 'Workspace', paths: ['/', '/orders', '/customers', '/products', '/suppliers'] },
   {
     label: 'Operations',
     paths: [

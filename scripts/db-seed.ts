@@ -1,7 +1,8 @@
 import {randomUUID} from 'node:crypto';
 import {eq} from 'drizzle-orm';
 import {database,closeDatabase} from '../server/db';
-import {users,settings,workspaces} from '../server/db/schema';
+import {users,settings,workspaces,suppliers,products,priceHistory} from '../server/db/schema';
+import {emptyCosts} from '../lib/margin';
 import {hashPassword} from '../server/auth';
 import {createCommerceState} from '../lib/commerce';
 import {projectCommerce,workspaceId} from '../server/services/commerce';
@@ -17,6 +18,14 @@ await db.transaction(async tx=>{
  if(process.env.SEED_COMMERCE!=='false'){
   const [existing]=await tx.select().from(workspaces).where(eq(workspaces.id,workspaceId));
   if(!existing){const data=createCommerceState();await projectCommerce(tx,data);await tx.insert(workspaces).values({id:workspaceId,data});}
+ }
+});
+const [manager]=await db.select().from(users).where(eq(users.email,'manager@ahinteriors.test'));
+await db.transaction(async tx=>{
+ for(const [code,name] of [['DEMO-RAUCH','Rauch'],['DEMO-WIEMANN','Wiemann']])await tx.insert(suppliers).values({id:code,name,code,active:true,details:{brands:name,contact:'Synthetic demonstration contact',email:'',phone:'',address:'',accountReference:'',paymentTerms:'Development example',leadTimeDays:42,deliveryTerms:'',collectionRequired:false,notes:'Synthetic demo supplier.'}}).onConflictDoNothing();
+ for(const [sku,name,category,supplierId,cost,price] of [['DEMO-WARDROBE','Demo wardrobe','Wardrobes','DEMO-RAUCH',104000,240000],['DEMO-SOFA','Demo sofa','Sofas','DEMO-WIEMANN',60000,150000],['DEMO-FLOORING','Demo flooring (per sqm)','Flooring','DEMO-RAUCH',1200,3600]] as const){
+  const [created]=await tx.insert(products).values({id:sku,name,sku,supplierId,supplierSku:sku,category,status:'Active',supplierCostPence:cost,sellingPricePence:price,details:{brand:'Demo',subcategory:'',article:sku,barcode:'',notes:'Synthetic demonstration data.',websiteUrl:'',shopifyProductId:'',shopifyVariantId:'',ebayListingId:'',websiteStatus:'Draft',widthMm:0,heightMm:0,depthMm:0,weightKg:0,packQuantity:1,packDimensions:'',vatTreatment:'Standard',discountPence:0,costs:emptyCosts}}).onConflictDoNothing().returning();
+  if(created)await tx.insert(priceHistory).values({productId:created.id,supplierCostPence:cost,sellingPricePence:price,changedBy:manager.id});
  }
 });
 console.log('Development staff and settings seeded without replacing existing records.');
