@@ -66,6 +66,14 @@ export const orders: Order[] = [
 ];
 
 export const navigation = [
+  {index:'DEL',label:'Deliveries',icon:ClipboardList,href:'/deliveries'},
+  {index:'ASM',label:'Assembly jobs',icon:ClipboardList,href:'/assembly-jobs'},
+  {index:'FLR',label:'Flooring',icon:ClipboardList,href:'/flooring'},
+  {index:'CS',label:'Customer service',icon:ClipboardList,href:'/service-cases'},
+  {index:'T',label:'Tasks',icon:ClipboardList,href:'/tasks'},
+  {index:'EXP',label:'Expenses',icon:ClipboardList,href:'/expenses'},
+  {index:'APR',label:'Approvals',icon:ClipboardList,href:'/approvals'},
+
   {index:'ST',label:'Inventory',icon:Boxes,href:'/inventory'},
   {index:'P',label:'Products',icon:Boxes,href:'/products'},
   {index:'S',label:'Suppliers',icon:Boxes,href:'/suppliers'},

@@ -1,6 +1,7 @@
+import {updateOrderProgress} from './order-progress';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
-import {eq,and} from 'drizzle-orm';
+import {eq,and,sql} from 'drizzle-orm';
 import {database} from '../db';
 import {purchaseOrders,purchaseItems,supplierOrders,suppliers,products,customers,orders,users,auditLogs,settings} from '../db/schema';
 import {authorize,AppError,type Staff} from '../permissions';
@@ -9,7 +10,7 @@ const id=z.string().min(1).max(128);const optionalId=z.union([id,z.literal('')])
 export const purchaseInput=z.object({version:z.number().int().positive().optional(),supplierId:id,orderId:optionalId,customerId:optionalId,date,expectedDate:optionalDate,currency:z.enum(['GBP','EUR','USD']),accountReference:text.max(200),notes:text,items:z.array(z.object({productId:id,description:text.min(1).max(1000),quantity:z.number().int().positive().max(10000),unitCostPence:z.number().int().min(0).max(1000000000),customerId:optionalId}).strict()).min(1).max(200)}).strict();
 export const trackingInput=z.object({version:z.number().int().positive().optional(),purchaseOrderId:id,ownerId:id,details:z.object({supplierOrderNumber:text.max(200),confirmationNumber:text.max(200),orderedDate:optionalDate,confirmationDate:optionalDate,expectedArrival:optionalDate,collectionRequired:z.boolean(),collectionCompany:text.max(200),collectionReference:text.max(200),collectionDate:optionalDate,lastContacted:optionalDate,nextChaseDate:optionalDate,deliveryBooked:z.boolean(),notes:text}).strict()}).strict();
 export async function listPurchases(staff:Staff){authorize(staff,'approvals.write');const db=database();const rows=await db.select().from(purchaseOrders).orderBy(purchaseOrders.createdAt);const items=await db.select().from(purchaseItems);return rows.map(row=>({...row,items:items.filter(v=>v.purchaseOrderId===row.id&&v.active),totalPence:items.filter(v=>v.purchaseOrderId===row.id).reduce((sum,v)=>sum+v.quantity*v.unitCostPence,0)}));}
-export async function savePurchase(staff:Staff,input:unknown,idValue?:string){authorize(staff,'approvals.write');const {version,items,...data}=purchaseInput.parse(input);const id=idValue??randomUUID();return database().transaction(async tx=>{
+export async function savePurchase(staff:Staff,input:unknown,idValue?:string){authorize(staff,'approvals.write');const {version,items,...data}=purchaseInput.parse(input);const id=idValue??randomUUID();return database().transaction(async tx=>{await tx.execute(sql`select pg_advisory_xact_lock(10204)`);
  const [supplier]=await tx.select().from(suppliers).where(eq(suppliers.id,data.supplierId));if(!supplier?.active)throw new AppError(422,'SUPPLIER_REQUIRED','Select an active supplier.');
  if(data.customerId&&!(await tx.select().from(customers).where(eq(customers.id,data.customerId))).length)throw new AppError(422,'CUSTOMER_REQUIRED','Customer not found.');
  if(data.orderId){const [order]=await tx.select().from(orders).where(eq(orders.id,data.orderId));if(!order||data.customerId&&order.customerId!==data.customerId)throw new AppError(422,'ORDER_REQUIRED','Order and customer must match.');}
@@ -41,5 +42,6 @@ export async function transitionSupplierOrder(staff:Staff,id:string,input:unknow
  if(!canTransition(supplierStatuses,prior.status,data.status))throw new AppError(422,'TRANSITION','Complete the preceding supplier stage first.');
  if(data.status==='Confirmed'&&(!prior.details.confirmationNumber||!prior.details.confirmationDate))throw new AppError(422,'CONFIRMATION_REQUIRED','Record the supplier confirmation number and date first.');
  if(data.status==='Received')throw new AppError(422,'RECEIVING_REQUIRED','Use goods receiving to update stock before marking received.');
- const [record]=await tx.update(supplierOrders).set({status:data.status,version:prior.version+1,updatedAt:new Date()}).where(eq(supplierOrders.id,id)).returning();await tx.insert(auditLogs).values({userId:staff.id,entity:'supplier-order',entityId:id,action:'status-changed',before:{status:prior.status},after:{status:data.status}});return record;
+ const [record]=await tx.update(supplierOrders).set({status:data.status,version:prior.version+1,updatedAt:new Date()}).where(eq(supplierOrders.id,id)).returning();if(data.status==='Confirmed'&&prior.orderId)await updateOrderProgress(tx,staff.id,prior.orderId,'supplier-confirmed',record.number,prior.supplierId);
+ await tx.insert(auditLogs).values({userId:staff.id,entity:'supplier-order',entityId:id,action:'status-changed',before:{status:prior.status},after:{status:data.status}});return record;
 });}

@@ -33,13 +33,13 @@ const groups = [
     label: 'Operations',
     paths: [
       '/reviews',
-      '/purchasing', '/inventory',
+      '/purchasing', '/inventory', '/deliveries', '/assembly-jobs', '/flooring', '/service-cases', '/tasks', '/approvals',
       '/assembly',
       '/communications',
       '/documents',
     ],
   },
-  { label: 'Finance', paths: ['/invoices'] },
+  { label: 'Finance', paths: ['/invoices','/expenses'] },
 ];
 export function activeRoute(pathname: string, href: string) {
   if (href === '/') return pathname === '/';

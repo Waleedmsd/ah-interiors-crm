@@ -1,3 +1,4 @@
+import {updateOrderProgress} from './order-progress';
 import {isPaid} from '../../lib/operations';
 import {digest} from '../auth';
 import {randomUUID} from 'node:crypto';
@@ -8,7 +9,7 @@ import {stockLocations,stockBalances,stockReservations,stockMovements,purchaseOr
 import {authorize,AppError,type Staff} from '../permissions';
 export const movementTypes=['Goods Received','Transfer','Reservation','Unreservation','Customer Delivery','Return','Adjustment','Damage','Display Stock'] as const;
 const id=z.string().min(1).max(128);
-export const movementInput=z.object({requestId:z.uuid(),type:z.enum(movementTypes),productId:id,locationId:id,targetLocationId:id.optional(),orderId:id.optional(),purchaseOrderId:id.optional(),reservationId:id.optional(),quantity:z.number().int().min(-10000).max(10000).refine(v=>v!==0),reason:z.string().trim().min(1).max(2000)}).strict();
+export const movementInput=z.object({requestId:z.uuid(),type:z.enum(movementTypes),productId:id,locationId:id,targetLocationId:id.optional(),orderId:id.optional(),purchaseOrderId:id.optional(),reservationId:id.optional(),groupId:id.optional(),quantity:z.number().int().min(-10000).max(10000).refine(v=>v!==0),reason:z.string().trim().min(1).max(2000)}).strict();
 type Tx=Parameters<Parameters<ReturnType<typeof database>['transaction']>[0]>[0];
 async function location(tx:Tx,id:string){const [row]=await tx.select().from(stockLocations).where(eq(stockLocations.id,id));if(!row?.active||row.type!=='Physical')throw new AppError(422,'LOCATION','Select an active physical stock location.');return row;}
 async function balance(tx:Tx,productId:string,locationId:string){const id=productId+':'+locationId;await tx.insert(stockBalances).values({id,productId,locationId}).onConflictDoNothing();const [row]=await tx.select().from(stockBalances).where(eq(stockBalances.id,id)).for('update');return row;}
@@ -19,6 +20,7 @@ export async function moveStock(staff:Staff,input:unknown){authorize(staff,'inve
  return database().transaction(async tx=>{
   // Deterministic global inventory lock avoids transfer/receipt/reservation deadlocks.
   // Database constraint checks and row locks still protect each balance.
+  await tx.execute(sql`select pg_advisory_xact_lock(10204)`);
   await tx.execute(sql`select pg_advisory_xact_lock(10203)`);
   const [priorRequest]=await tx.select().from(stockMovements).where(eq(stockMovements.requestId,data.requestId));if(priorRequest){if(priorRequest.requestDigest!==requestDigest||priorRequest.productId!==data.productId||priorRequest.quantity!==data.quantity||priorRequest.type!==data.type||priorRequest.locationId!==data.locationId||priorRequest.orderId!==(data.orderId??null)||priorRequest.purchaseOrderId!==(data.purchaseOrderId??null))throw new AppError(409,'IDEMPOTENCY_CONFLICT','Movement request ID was already used.');return priorRequest;}
   const [product]=await tx.select().from(products).where(eq(products.id,data.productId));if(!product)throw new AppError(422,'PRODUCT_REQUIRED','Select an existing product.');await location(tx,data.locationId);
@@ -32,6 +34,7 @@ export async function moveStock(staff:Staff,input:unknown){authorize(staff,'inve
    let remaining=data.quantity;for(const item of items){const received=Math.min(remaining,item.quantity-item.receivedQuantity);await tx.update(purchaseItems).set({receivedQuantity:item.receivedQuantity+received}).where(eq(purchaseItems.id,item.id));remaining-=received;}
    const all=await tx.select().from(purchaseItems).where(and(eq(purchaseItems.purchaseOrderId,purchase.id),eq(purchaseItems.active,true)));const complete=all.every(item=>item.receivedQuantity===item.quantity);
    await tx.update(purchaseOrders).set({status:complete?'Received':'Partially Received',version:purchase.version+1,updatedAt:new Date()}).where(eq(purchaseOrders.id,purchase.id));
+   if(complete&&purchase.orderId)await updateOrderProgress(tx,staff.id,purchase.orderId,'received',purchase.number,purchase.supplierId);
    if(complete)await tx.update(supplierOrders).set({status:'Received',version:sql`${supplierOrders.version}+1`,updatedAt:new Date()}).where(and(eq(supplierOrders.purchaseOrderId,purchase.id),sql`${supplierOrders.status} NOT IN ('Cancelled','Completed')`));
    await tx.insert(auditLogs).values({userId:staff.id,entity:'purchase-order',entityId:purchase.id,action:'goods-received',before:{status:purchase.status},after:{status:complete?'Received':'Partially Received',productId:data.productId,quantity:data.quantity}});
    next.physical+=data.quantity;
@@ -49,10 +52,11 @@ export async function moveStock(staff:Staff,input:unknown){authorize(staff,'inve
    if(!data.orderId)throw new AppError(422,'ORDER_REQUIRED','Stock reservations require a sales order.');
    const [order]=await tx.select().from(orders).where(eq(orders.id,data.orderId));
    if(!isPaid(order.data))throw new AppError(422,'PAYMENT_REQUIRED','Verified full payment is required before reserving stock.');
-   const ordered=order.data.lines.filter(line=>(line as typeof line & {productId?:string}).productId===data.productId||line.sku===product.sku).reduce((sum,line)=>sum+line.quantity,0);
-   const reserved=await tx.select().from(stockReservations).where(and(eq(stockReservations.orderId,data.orderId),eq(stockReservations.productId,data.productId),inArray(stockReservations.status,['Active','Delivered'])));
+   const productLines=order.data.lines.filter(line=>line.productId===data.productId||line.sku===product.sku);const groupIds=[...new Set(productLines.map(v=>v.groupId))];const groupId=data.groupId??(groupIds.length===1?groupIds[0]:undefined);if(!groupId||!groupIds.includes(groupId))throw new AppError(422,'GROUP_REQUIRED','Select the product fulfilment group.');
+   const ordered=order.data.lines.filter(line=>line.groupId===groupId).filter(line=>(line as typeof line & {productId?:string}).productId===data.productId||line.sku===product.sku).reduce((sum,line)=>sum+line.quantity,0);
+   const reserved=await tx.select().from(stockReservations).where(and(eq(stockReservations.orderId,data.orderId),eq(stockReservations.productId,data.productId),eq(stockReservations.groupId,groupId),inArray(stockReservations.status,['Active','Delivered'])));
    if(reserved.reduce((sum,v)=>sum+v.quantity,0)+data.quantity>ordered)throw new AppError(422,'ALLOCATION','Link the product to the sales order; reservations cannot exceed its ordered quantity.');
-   await tx.insert(stockReservations).values({id:randomUUID(),productId:data.productId,locationId:data.locationId,orderId:data.orderId,quantity:data.quantity,createdBy:staff.id});next.reserved+=data.quantity;
+   await tx.insert(stockReservations).values({id:randomUUID(),productId:data.productId,locationId:data.locationId,orderId:data.orderId,groupId,quantity:data.quantity,createdBy:staff.id});next.reserved+=data.quantity;
   }else if(['Unreservation','Customer Delivery'].includes(data.type)){
    if(!data.reservationId)throw new AppError(422,'RESERVATION_REQUIRED','Choose the existing stock reservation.');
    const [reservation]=await tx.select().from(stockReservations).where(eq(stockReservations.id,data.reservationId)).for('update');

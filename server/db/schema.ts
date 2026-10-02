@@ -123,7 +123,7 @@ export const stockBalances = pgTable('stock_balances',{
 },t=>[uniqueIndex('stock_product_location_unique').on(t.productId,t.locationId),check('stock_balances_valid',sql`${t.physical} >= 0 AND ${t.reserved} >= 0 AND ${t.display} >= 0 AND ${t.reserved} + ${t.display} <= ${t.physical}`)]);
 export const stockReservations = pgTable('stock_reservations',{
  id:text('id').primaryKey(),productId:text('product_id').notNull().references(()=>products.id),locationId:text('location_id').notNull().references(()=>stockLocations.id),orderId:text('order_id').notNull().references(()=>orders.id),
- quantity:integer('quantity').notNull(),status:text('status').notNull().default('Active'),createdBy:text('created_by').notNull().references(()=>users.id),
+ groupId:text('group_id'),quantity:integer('quantity').notNull(),status:text('status').notNull().default('Active'),createdBy:text('created_by').notNull().references(()=>users.id),
  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
 });
 export const stockMovements = pgTable('stock_movements',{
@@ -133,3 +133,20 @@ export const stockMovements = pgTable('stock_movements',{
  createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),before:jsonb('before').notNull(),after:jsonb('after').notNull(),
  requestId:text('request_id').notNull().unique(),requestDigest:text('request_digest').notNull(),
 });
+
+// Domain tables share lifecycle columns while keeping distinct relations and histories.
+const operationalTable=(name:string)=>pgTable(name,{
+ id:text('id').primaryKey(),number:text('number').notNull().unique(),title:text('title').notNull(),status:text('status').notNull(),
+ customerId:text('customer_id').references(()=>customers.id),orderId:text('order_id').references(()=>orders.id),
+ supplierId:text('supplier_id').references(()=>suppliers.id),productId:text('product_id').references(()=>products.id),
+ assignedUserId:text('assigned_user_id').references(()=>users.id),createdBy:text('created_by').notNull().references(()=>users.id),
+ details:jsonb('details').$type<Record<string,unknown>>().notNull(),version:integer('version').notNull().default(1),
+ createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+});
+export const deliveryJobs=operationalTable('delivery_jobs');
+export const assemblyJobs=operationalTable('assembly_jobs');
+export const flooringLeads=operationalTable('flooring_leads');
+export const serviceCases=operationalTable('customer_service_cases');
+export const centralTasks=operationalTable('central_tasks');
+export const expenses=operationalTable('business_expenses');
+export const approvals=operationalTable('management_approvals');

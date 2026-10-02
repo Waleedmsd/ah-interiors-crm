@@ -1,4 +1,4 @@
-import {eq} from 'drizzle-orm';
+import {eq,sql} from 'drizzle-orm';
 import {database} from '../db';
 import {customers,orders,invoices,payments,workspaces,auditLogs,requests,products,suppliers} from '../db/schema';
 import {applyCommerce,parseSavedCommerce,type CommerceState,type CommerceAction} from '../../lib/commerce';
@@ -39,6 +39,7 @@ export async function mutateCommerce(staff:Staff,input:unknown) {
  const requestKey=staff.id+':'+parsed.requestId;
  const actionDigest=digest(JSON.stringify(action));
  return database().transaction(async tx=>{
+  await tx.execute(sql`select pg_advisory_xact_lock(10204)`);
   const [row]=await tx.select().from(workspaces).where(eq(workspaces.id,workspaceId)).for('update');
   if(!row)throw new AppError(503,'NOT_INITIALIZED','Initialize the database first.');
   const [prior]=await tx.select().from(requests).where(eq(requests.id,requestKey));

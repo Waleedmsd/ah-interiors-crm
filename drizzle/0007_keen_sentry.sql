@@ -1,0 +1,1 @@
+ALTER TABLE "stock_reservations" ADD COLUMN "group_id" text;

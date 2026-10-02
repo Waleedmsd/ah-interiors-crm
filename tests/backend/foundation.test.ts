@@ -7,9 +7,10 @@ import {resolve} from 'node:path';
 import {migrate} from 'drizzle-orm/node-postgres/migrator';
 import {eq} from 'drizzle-orm';
 import {database,closeDatabase} from '../../server/db';
-import {users,sessions,auditLogs,customers,workspaces,settings,priceHistory,products,purchaseItems,purchaseOrders,stockLocations,stockBalances,stockReservations} from '../../server/db/schema';
+import {users,sessions,auditLogs,customers,workspaces,settings,priceHistory,products,purchaseItems,purchaseOrders,stockLocations,stockBalances,stockReservations,deliveryJobs,assemblyJobs} from '../../server/db/schema';
 import {handleApi} from '../../server/api';
 import {hashPassword,verifyPassword} from '../../server/auth';
+import {blankDetails} from '../../lib/business-modules';
 import {emptyCosts} from '../../lib/margin';
 import {createCommerceState} from '../../lib/commerce';
 import {projectCommerce,workspaceId} from '../../server/services/commerce';
@@ -100,6 +101,50 @@ test('stock receiving, reservations, delivery, returns and retries remain atomic
  const returned={...delivered,requestId:randomUUID(),type:'Return',reason:'Customer return'};assert.equal((await request('inventory/movements','POST',returned,warehouseCookie)).status,201);assert.equal((await request('inventory/movements','POST',{...returned,requestId:randomUUID()},warehouseCookie)).status,422);
  const [balance]=await database().select().from(stockBalances).where(eq(stockBalances.productId,product.id));assert.equal(balance.physical,2);assert.equal(balance.reserved,0);
  const audit=await database().select().from(auditLogs).where(eq(auditLogs.entity,'stock-movement'));assert.equal(audit.length,5);
+});
+test('delivery and assembly enforce assignments, evidence, stock and canonical completion',async()=>{
+ const driverId=randomUUID(),installerId=randomUUID();const hash=await hashPassword(password);
+ await database().insert(users).values([{id:driverId,name:'Test Driver',email:'driver@test.invalid',role:'Delivery',department:'Delivery',passwordHash:hash},{id:installerId,name:'Test Installer',email:'installer@test.invalid',role:'Installer',department:'Assembly',passwordHash:hash}]);
+ const driverLogin=await request('auth/login','POST',{email:'driver@test.invalid',password},'');const driverCookie=driverLogin.headers.get('set-cookie')!.split(';')[0];
+ const installerLogin=await request('auth/login','POST',{email:'installer@test.invalid',password},'');const installerCookie=installerLogin.headers.get('set-cookie')!.split(';')[0];
+ const [ledger]=await database().select().from(workspaces);const order=ledger.data.operations.cases.find(v=>v.sourceRef==='STOCK-TEST')!;const line=order.lines[0];
+ const allocation=await request('inventory/movements','POST',{requestId:randomUUID(),type:'Reservation',productId:line.productId,locationId:'test-warehouse',orderId:order.id,quantity:1,reason:'Delivery allocation'},warehouseCookie);assert.equal(allocation.status,201);
+ const input={title:'Synthetic delivery',customerId:order.customerId,orderId:order.id,supplierId:'',productId:'',assignedUserId:driverId,details:{...blankDetails('deliveries'),groupId:line.groupId,address:order.address,postcode:order.postcode,phone:order.phone,packs:1,scheduledDate:'2026-10-03',timeSlot:'09:00–12:00',customerConfirmed:true,assemblyRequired:true}};
+ const created=await request('operations/deliveries','POST',input);assert.equal(created.status,201);let delivery=await created.json() as any;
+ assert.equal((await request('operations/deliveries','POST',input)).status,409);
+ const assigned=await request('operations/deliveries','GET',undefined,driverCookie);assert.equal((await assigned.json() as any[]).length,1);assert.equal((await request('commerce','GET',undefined,driverCookie)).status,403);
+ assert.equal((await request('operations/deliveries/'+delivery.id,'PUT',{...input,version:delivery.version},driverCookie)).status,403);
+ for(const status of ['Ready to Book','Booked','Confirmed']){const r=await request('operations/deliveries/'+delivery.id,'PATCH',{version:delivery.version,status});assert.equal(r.status,200);delivery=await r.json();}
+ const outbound=await request('operations/deliveries/'+delivery.id,'PATCH',{version:delivery.version,status:'Out for Delivery'},driverCookie);assert.equal(outbound.status,200);delivery=await outbound.json();
+ assert.equal((await request('operations/deliveries/'+delivery.id,'PATCH',{version:delivery.version,status:'Delivered'},driverCookie)).status,422);
+ const done=await request('operations/deliveries/'+delivery.id,'PATCH',{version:delivery.version,status:'Delivered',evidence:'Signed by synthetic recipient'},driverCookie);assert.equal(done.status,200);
+ const [stock]=await database().select().from(stockBalances).where(eq(stockBalances.productId,line.productId!));assert.equal(stock.physical,1);assert.equal(stock.reserved,0);
+ const [updated]=await database().select().from(workspaces);assert.equal(updated.data.operations.cases.find(v=>v.id===order.id)!.groups[0].delivery,true);
+ const [assembly]=await database().select().from(assemblyJobs).where(eq(assemblyJobs.orderId,order.id));assert.ok(assembly);
+ const assemblyInput={title:assembly.title,customerId:assembly.customerId,orderId:assembly.orderId,supplierId:'',productId:'',assignedUserId:installerId,details:{...assembly.details,scheduledDate:'2026-10-04',timeSlot:'09:00–12:00'}};
+ const edited=await request('operations/assembly-jobs/'+assembly.id,'PUT',{...assemblyInput,version:assembly.version});assert.equal(edited.status,200);let assemblyRecord=await edited.json() as any;
+ for(const status of ['Booked','Confirmed']){const r=await request('operations/assembly-jobs/'+assembly.id,'PATCH',{version:assemblyRecord.version,status});assert.equal(r.status,200);assemblyRecord=await r.json();}
+ const started=await request('operations/assembly-jobs/'+assembly.id,'PATCH',{version:assemblyRecord.version,status:'In Progress'},installerCookie);assert.equal(started.status,200);assemblyRecord=await started.json();
+ const signed=await request('operations/assembly-jobs/'+assembly.id,'PATCH',{version:assemblyRecord.version,status:'Completed',evidence:'Synthetic customer sign-off'},installerCookie);assert.equal(signed.status,200);
+ const [finished]=await database().select().from(workspaces);assert.equal(finished.data.operations.cases.find(v=>v.id===order.id)!.groups[0].assembly,'Complete');
+});
+test('flooring stores room measurements, quote totals and requires a lost reason',async()=>{
+ const [ledger]=await database().select().from(workspaces);const [product]=await database().select().from(products);
+ const details={...blankDetails('flooring'),leadSource:'Showroom',measureDate:'2026-10-05',surveyor:'Synthetic surveyor',rooms:[{name:'Lounge',length:4,width:3,wastePercent:10,stairs:false,landing:false,underlay:'Standard',accessories:'Grippers',notes:''}],quote:{lines:[{productId:product.id,quantity:13.2,unitPricePence:2000}],underlayPence:1000,accessoriesPence:500,fittingPence:5000,removalPence:0,deliveryPence:0,discountPence:0,costPence:10000}};
+ const response=await request('operations/flooring','POST',{title:'Synthetic flooring lead',customerId:ledger.data.customers[0].id,assignedUserId:managerId,details});assert.equal(response.status,201);let lead=await response.json() as any;
+ for(const status of ['Measure Booked','Measure Completed','Quote']){const r=await request('operations/flooring/'+lead.id,'PATCH',{version:lead.version,status});assert.equal(r.status,200);lead=await r.json();}
+ const rows=await request('operations/flooring');const saved=(await rows.json() as any[])[0];assert.equal(saved.rooms[0].area,12);assert.equal(saved.rooms[0].requiredQuantity,13.2);assert.ok(saved.profitability.contributionProfitPence>0);
+ assert.equal((await request('operations/flooring/'+lead.id,'PATCH',{version:lead.version,status:'Lost'})).status,422);
+});
+test('customer service, tasks and management approvals enforce lifecycle and authority',async()=>{
+ const [ledger]=await database().select().from(workspaces);const customerId=ledger.data.customers[0].id;
+ const created=await request('operations/service-cases','POST',{title:'Synthetic damage',customerId,assignedUserId:managerId,details:{...blankDetails('service-cases'),caseType:'Damage',reportedDate:'2026-10-02',description:'Synthetic damaged pack',resolution:'Replacement supplied'}});assert.equal(created.status,201);let record=await created.json() as any;
+ for(const status of ['Investigating','Ready to Resolve','Resolved','Closed']){const response=await request('operations/service-cases/'+record.id,'PATCH',{version:record.version,status});assert.equal(response.status,200);record=await response.json();}
+ assert.equal((await request('operations/service-cases/'+record.id,'PATCH',{version:record.version,status:'Investigating'})).status,422);
+ const task=await request('operations/tasks','POST',{title:'Synthetic chase task',assignedUserId:managerId,details:{...blankDetails('tasks'),dueDate:'2026-10-02',linkedType:'customer',linkedId:customerId}});assert.equal(task.status,201);const taskRow=await task.json() as any;assert.equal((await request('operations/tasks/'+taskRow.id,'PATCH',{version:taskRow.version,status:'Completed'})).status,200);
+ const [product]=await database().select().from(products);const approval=await request('operations/approvals','POST',{title:'Synthetic low-margin review',assignedUserId:managerId,details:{...blankDetails('approvals'),approvalType:'Low margin',reason:'Synthetic approval check',linkedType:'product',linkedId:product.id}});assert.equal(approval.status,201);const approvalRow=await approval.json() as any;
+ assert.equal((await request('operations/approvals/'+approvalRow.id,'PATCH',{version:approvalRow.version,status:'Approved'},warehouseCookie)).status,403);
+ assert.equal((await request('operations/approvals/'+approvalRow.id,'PATCH',{version:approvalRow.version,status:'Approved'})).status,200);
 });
 test('disabled users and expired sessions are rejected on every request',async()=>{await database().update(users).set({active:false}).where(eq(users.id,managerId));assert.equal((await request('auth/me')).status,401);await database().update(users).set({active:true}).where(eq(users.id,managerId));await database().update(sessions).set({expiresAt:new Date(0)}).where(eq(sessions.userId,managerId));assert.equal((await request('auth/me')).status,401);const result=await request('auth/login','POST',{email:'manager@test.invalid',password},'');managerCookie=result.headers.get('set-cookie')!.split(';')[0];});
 test('attachments require linked record access and persist metadata and bytes',async()=>{
