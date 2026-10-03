@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { eq, and, inArray, sql, desc } from 'drizzle-orm';
 import { database } from '../db';
 import {
+  deliveryJobs,
   stockLocations,
   stockBalances,
   stockReservations,
@@ -161,15 +162,13 @@ export async function saveLocation(staff: Staff, input: unknown) {
       .insert(stockLocations)
       .values({ id, ...data })
       .returning();
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: 'stock-location',
-        entityId: id,
-        action: 'created',
-        after: row,
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: 'stock-location',
+      entityId: id,
+      action: 'created',
+      after: row,
+    });
     return row;
   });
 }
@@ -338,20 +337,18 @@ export async function moveStock(staff: Staff, input: unknown) {
               sql`${supplierOrders.status} NOT IN ('Cancelled','Completed')`,
             ),
           );
-      await tx
-        .insert(auditLogs)
-        .values({
-          userId: staff.id,
-          entity: 'purchase-order',
-          entityId: purchase.id,
-          action: 'goods-received',
-          before: { status: purchase.status },
-          after: {
-            status: complete ? 'Received' : 'Partially Received',
-            productId: data.productId,
-            quantity: data.quantity,
-          },
-        });
+      await tx.insert(auditLogs).values({
+        userId: staff.id,
+        entity: 'purchase-order',
+        entityId: purchase.id,
+        action: 'goods-received',
+        before: { status: purchase.status },
+        after: {
+          status: complete ? 'Received' : 'Partially Received',
+          productId: data.productId,
+          quantity: data.quantity,
+        },
+      });
       next.physical += data.quantity;
     } else if (data.type === 'Return') {
       if (!data.reservationId || !data.orderId)
@@ -459,17 +456,15 @@ export async function moveStock(staff: Staff, input: unknown) {
           'ALLOCATION',
           'Link the product to the sales order; reservations cannot exceed its ordered quantity.',
         );
-      await tx
-        .insert(stockReservations)
-        .values({
-          id: randomUUID(),
-          productId: data.productId,
-          locationId: data.locationId,
-          orderId: data.orderId,
-          groupId,
-          quantity: data.quantity,
-          createdBy: staff.id,
-        });
+      await tx.insert(stockReservations).values({
+        id: randomUUID(),
+        productId: data.productId,
+        locationId: data.locationId,
+        orderId: data.orderId,
+        groupId,
+        quantity: data.quantity,
+        createdBy: staff.id,
+      });
       next.reserved += data.quantity;
     } else if (['Unreservation', 'Customer Delivery'].includes(data.type)) {
       if (!data.reservationId)
@@ -496,6 +491,24 @@ export async function moveStock(staff: Staff, input: unknown) {
           'RESERVATION',
           'Movement must match the active reservation and order.',
         );
+      if (data.type === 'Customer Delivery') {
+        const jobs = await tx
+          .select()
+          .from(deliveryJobs)
+          .where(eq(deliveryJobs.orderId, data.orderId!));
+        if (
+          jobs.some(
+            (j) =>
+              j.details.groupId === reservation.groupId &&
+              j.status !== 'Cancelled',
+          )
+        )
+          throw new AppError(
+            422,
+            'DELIVERY_WORKFLOW',
+            'Complete the linked delivery job with proof to dispatch its stock.',
+          );
+      }
       await tx
         .update(stockReservations)
         .set({
@@ -536,16 +549,14 @@ export async function moveStock(staff: Staff, input: unknown) {
         after: { source: next, target: targetAfter },
       })
       .returning();
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: 'stock-movement',
-        entityId: id,
-        action: data.type,
-        before: { source: before, target: targetBefore },
-        after: { source: next, target: targetAfter, reason: data.reason },
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: 'stock-movement',
+      entityId: id,
+      action: data.type,
+      before: { source: before, target: targetBefore },
+      after: { source: next, target: targetAfter, reason: data.reason },
+    });
     return movement;
   });
 }

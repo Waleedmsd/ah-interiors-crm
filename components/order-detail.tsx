@@ -1,4 +1,5 @@
 'use client';
+import { FurnitureFulfilment } from '@/components/furniture-fulfilment';
 import { OrderCostSheet } from '@/components/order-cost-sheet';
 import { RecordActivity } from '@/components/record-activity';
 import { RecordAttachments } from '@/components/record-attachments';
@@ -21,7 +22,6 @@ import { OrderNextAction } from '@/components/order-next-action';
 import { AssistantPanel } from '@/components/assistant-panel';
 import {
   OrderProducts,
-  FulfilmentPanel,
   PaymentPanel,
   OrderHistory,
   OrderDocuments,
@@ -92,10 +92,12 @@ export function OrderDetail({ id }: { id: string }) {
               href={
                 order.flooringLeadId
                   ? '/flooring/fitting?record=' + order.flooringLeadId
-                  : '/deliveries?create=1&order=' + encodeURIComponent(id)
+                  : '/orders/' + encodeURIComponent(id) + '?tab=fulfilment'
               }
             >
-              {order.flooringLeadId ? 'Materials & fitting' : 'Book delivery'}
+              {order.flooringLeadId
+                ? 'Materials & fitting'
+                : 'Manage fulfilment'}
             </Link>
           </>
         }
@@ -131,42 +133,33 @@ export function OrderDetail({ id }: { id: string }) {
             done: isPaid(order),
           },
           {
-            label: '02 · Preparation',
-            value: order.pack
-              ? 'Pack prepared'
-              : order.status === 'New'
-                ? 'Not started'
-                : 'Existing order',
-            done: Boolean(order.pack) || order.status !== 'New',
+            label: '02 · Products',
+            value: order.lines.every((l) => l.productId)
+              ? 'Catalogue linked'
+              : 'Link products',
+            done:
+              order.lines.length > 0 && order.lines.every((l) => l.productId),
           },
           {
-            label: '03 · Approval',
+            label: '03 · Delivery',
             value:
-              order.pack?.state === 'Approved'
-                ? 'Recorded locally'
-                : order.pack
-                  ? 'Your review'
-                  : 'Not requested',
-            done: order.pack?.state === 'Approved',
-            active: order.pack?.state === 'Draft',
+              order.groups.filter((g) => g.delivery).length +
+              ' / ' +
+              order.groups.length +
+              ' shipments',
+            done:
+              order.groups.length > 0 && order.groups.every((g) => g.delivery),
           },
           {
-            label: '04 · Fulfilment',
+            label: '04 · Completion',
             value: completed(order)
-              ? 'Complete'
-              : order.groups.every(
-                    (group) => group.supplierStatus === 'Not ordered',
-                  )
-                ? 'Not ordered'
-                : 'In progress',
+              ? 'Evidence recorded'
+              : 'Delivery & sign-off pending',
             done: completed(order),
           },
         ].map((stage) => (
           <div
-            className={
-              'ops-stage ' +
-              (stage.done ? 'done' : stage.active ? 'active' : '')
-            }
+            className={'ops-stage ' + (stage.done ? 'done' : '')}
             key={stage.label}
           >
             <span>{stage.label}</span>
@@ -257,7 +250,7 @@ export function OrderDetail({ id }: { id: string }) {
                     </Link>
                   </section>
                 ) : (
-                  <FulfilmentPanel order={order} />
+                  <FurnitureFulfilment orderId={order.id} />
                 )}
               </>
             </TabsContent>
@@ -278,7 +271,7 @@ export function OrderDetail({ id }: { id: string }) {
           </Tabs>
           <Panel
             title="Internal note"
-            description="Only visible in the local workspace."
+            description="Shared internally with your team."
           >
             <div className="ops-contact">
               {order.note && (
@@ -339,7 +332,7 @@ export function OrderDetail({ id }: { id: string }) {
               </div>
               <dl>
                 <div>
-                  <dt>Delivery address · sample</dt>
+                  <dt>Delivery address</dt>
                   <dd>
                     {order.address}
                     <br />
@@ -366,8 +359,8 @@ export function OrderDetail({ id }: { id: string }) {
           <AssistantPanel orderId={id} />
           <p className="ops-local-note">
             <ShieldCheck size={17} />
-            Synthetic customer and catalogue data. This workspace does not send
-            emails, buy stock or book transport.
+            Internal records are shared with your team. Confirm external
+            supplier and transport arrangements on their linked records.
           </p>
         </aside>
       </div>

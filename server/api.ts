@@ -1,3 +1,4 @@
+import { furnitureProject, actOnFurniture } from './services/furniture';
 import { randomUUID } from 'node:crypto';
 import { eq, desc, and, sql } from 'drizzle-orm';
 import { z, ZodError } from 'zod';
@@ -239,6 +240,14 @@ export async function handleApi(request: Request): Promise<Response> {
     }
     const staff = await currentStaff(request);
     if (path === 'auth/me' && method === 'GET') return json({ user: staff });
+    if (/^orders\/[^/]+\/fulfilment$/.test(path)) {
+      if (method === 'GET')
+        return json(await furnitureProject(staff, path.split('/')[1]));
+      if (method === 'POST')
+        return json(
+          await actOnFurniture(staff, path.split('/')[1], await body(request)),
+        );
+    }
     if (path === 'flooring/fittings' && method === 'GET')
       return json(await listFittings(staff));
     if (/^flooring\/[^/]+\/accept$/.test(path) && method === 'POST')

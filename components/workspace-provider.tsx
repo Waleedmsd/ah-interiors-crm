@@ -124,6 +124,7 @@ function useWorkspaceState() {
     );
   }
   return {
+    reload: async () => { if (!preview) await remote.reload(); },
     commerce: local.data,
     customers: local.data.customers,
     invoices: local.data.invoices,

@@ -24,7 +24,6 @@ export function deliveryReady(
     { productId: string; groupId: string; quantity: number }
   >();
   for (const line of lines) {
-    if (order.groups.find((g) => g.id === line.groupId)?.receipt) continue;
     if (!line.productId) return false;
     const key = line.groupId + ':' + line.productId;
     const prior = needed.get(key);
@@ -72,11 +71,10 @@ export async function updateOrderProgress(
       .select()
       .from(purchaseOrders)
       .where(eq(purchaseOrders.orderId, orderId));
-    if (
-      associated
-        .filter((v) => v.supplierId === supplierId && v.status !== 'Cancelled')
-        .every((v) => v.status === 'Received')
-    )
+    const relevant = associated.filter(
+      (v) => v.supplierId === supplierId && v.status !== 'Cancelled',
+    );
+    if (relevant.length > 0 && relevant.every((v) => v.status === 'Received'))
       order.groups = order.groups.map((g) =>
         g.supplier === supplier?.name ? { ...g, receipt: true } : g,
       );
@@ -113,7 +111,7 @@ export async function updateOrderProgress(
   });
   if (completed(order)) {
     order.tasks = [];
-    if (order.flooringLeadId) order.status = 'Complete';
+    order.status = 'Complete';
   }
   await tx
     .update(workspaces)

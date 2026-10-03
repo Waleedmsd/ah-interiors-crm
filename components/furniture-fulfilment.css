@@ -1,0 +1,334 @@
+.furniture-workflow {
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+  color: var(--ink, #153344);
+}
+.furniture-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+}
+.furniture-hero h2 {
+  font-size: 22px;
+  margin: 7px 0;
+}
+.furniture-hero p,
+.furniture-action p,
+.furniture-section-heading p,
+.furniture-supply > p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #596c76;
+  margin: 5px 0;
+}
+.furniture-eyebrow {
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  color: #54717e;
+}
+.furniture-stages {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  padding: 0;
+  margin: 0;
+  background: #dfe8ed;
+  border: 1px solid #dfe8ed;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.furniture-stages li {
+  background: #f6f9fa;
+  padding: 15px;
+  display: grid;
+  gap: 5px;
+}
+.furniture-stages li[data-done='true'] {
+  background: #edf8f4;
+}
+.furniture-stages span {
+  font-size: 11px;
+  color: #5b7380;
+}
+.furniture-stages strong {
+  font-size: 12px;
+}
+.furniture-stages small {
+  font-size: 11px;
+  color: #526771;
+}
+.furniture-action {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  justify-content: space-between;
+  padding: 18px;
+  border: 1px solid #dae8ed;
+  background: #f4fafc;
+  border-radius: 12px;
+}
+.furniture-action h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin: 0;
+}
+.furniture-action > .btn {
+  flex-shrink: 0;
+}
+.furniture-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 15px;
+}
+.furniture-section-heading h3,
+.furniture-supply h3 {
+  font-size: 15px;
+  margin: 0;
+}
+.furniture-section-heading h3 span {
+  font-size: 12px;
+  color: #5c717d;
+  margin-left: 8px;
+}
+.furniture-shipment {
+  border: 1px solid #dbe5eb;
+  border-radius: 12px;
+  overflow: hidden;
+  background: white;
+}
+.furniture-shipment > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  background: #fafcfd;
+}
+.furniture-shipment h3 {
+  font-size: 16px;
+  margin: 4px 0;
+}
+.furniture-shipment header p {
+  font-size: 12px;
+  color: #57717f;
+  margin: 0;
+}
+.furniture-table-wrap {
+  overflow-x: auto;
+}
+.furniture-shipment table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+.furniture-shipment th {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #61747d;
+  padding: 11px 12px;
+  border-block: 1px solid #e5ecef;
+  white-space: nowrap;
+}
+.furniture-shipment td {
+  padding: 14px 12px;
+  border-bottom: 1px solid #edf1f4;
+  font-variant-numeric: tabular-nums;
+}
+.furniture-shipment th:first-child,
+.furniture-shipment td:first-child {
+  padding-left: 20px;
+  min-width: 180px;
+}
+.furniture-shipment td small {
+  display: block;
+  color: #667985;
+  font-size: 11px;
+  margin-top: 5px;
+}
+.furniture-shortage {
+  padding: 3px 8px;
+  background: #fff3dc;
+  color: #855305;
+  border-radius: 5px;
+}
+.furniture-shipment footer {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+.furniture-shipment footer p {
+  font-size: 12px;
+  color: #58707c;
+  max-width: 420px;
+  margin: 0;
+  line-height: 1.5;
+}
+.furniture-shipment footer > div {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.furniture-job-list {
+  display: grid;
+}
+.furniture-job-list > a {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e8eef2;
+  color: #234b61;
+  text-decoration: none;
+}
+.furniture-job-list > a:hover {
+  background: #f1f9fc;
+}
+.furniture-job-list > a > span {
+  flex: 1;
+}
+.furniture-job-list strong {
+  display: block;
+  font-size: 12px;
+}
+.furniture-job-list small {
+  display: block;
+  color: #435d6b;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.furniture-supply {
+  border: 1px solid #e0e8ed;
+  border-radius: 12px;
+  padding: 18px;
+}
+.furniture-supply .furniture-job-list {
+  margin: 10px -18px;
+}
+.furniture-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: #176079;
+  margin-top: 10px;
+}
+.furniture-alert,
+.furniture-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #fff5e4;
+  color: #795006;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.furniture-notice {
+  background: #eaf7f0;
+  color: #205943;
+  margin: 0;
+}
+.furniture-hint {
+  font-size: 12px;
+  color: #5c707b;
+  line-height: 1.5;
+}
+.furniture-split-dialog {
+  max-width: 560px !important;
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+.furniture-split-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 13px 0;
+  border-bottom: 1px solid #e4ebee;
+  font-size: 13px;
+}
+.furniture-split-line small {
+  display: block;
+  color: #647783;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.furniture-split-line input {
+  width: 80px;
+  border: 1px solid #c9d8df;
+  border-radius: 7px;
+  padding: 9px;
+}
+.furniture-reason {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 16px;
+}
+.furniture-reason textarea {
+  min-height: 80px;
+  border: 1px solid #c9d8df;
+  border-radius: 8px;
+  padding: 10px;
+  width: 100%;
+}
+@media (max-width: 1100px) {
+  .furniture-action,
+  .furniture-shipment footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .furniture-section-heading {
+    display: block;
+  }
+  .furniture-stages {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .furniture-workflow {
+    padding: 14px;
+    gap: 16px;
+  }
+  .furniture-hero h2 {
+    font-size: 19px;
+  }
+  .furniture-hero {
+    gap: 10px;
+  }
+  .furniture-hero > .btn {
+    font-size: 0;
+    gap: 0;
+  }
+  .furniture-stages li {
+    padding: 12px;
+  }
+  .furniture-shipment > header {
+    padding: 14px;
+  }
+  .furniture-shipment footer {
+    padding: 14px;
+  }
+  .furniture-shipment footer > div {
+    flex-wrap: wrap;
+  }
+  .furniture-action {
+    padding: 14px;
+  }
+  .furniture-action > .btn {
+    white-space: normal;
+    text-align: center;
+    width: 100%;
+  }
+}

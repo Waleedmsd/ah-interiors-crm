@@ -2423,15 +2423,13 @@ test('flooring acceptance, shortage buying, allocation and fitting are connected
   ).json();
   assert.ok(!otherDocuments.some((d) => d.entityId === lead.id));
   const salesId = randomUUID();
-  await database()
-    .insert(users)
-    .values({
-      id: salesId,
-      name: 'Flooring sales',
-      email: 'flooring-sales@test.invalid',
-      role: 'Customer Service & Sales',
-      passwordHash,
-    });
+  await database().insert(users).values({
+    id: salesId,
+    name: 'Flooring sales',
+    email: 'flooring-sales@test.invalid',
+    role: 'Customer Service & Sales',
+    passwordHash,
+  });
   const salesLogin = await request(
     'auth/login',
     'POST',
@@ -2510,4 +2508,318 @@ test('flooring acceptance, shortage buying, allocation and fitting are connected
     .from(stockBalances)
     .where(eq(stockBalances.productId, productId));
   assert.equal(stock.physical, 0);
+});
+
+test('furniture preparation, shipment splitting and partial completion preserve stock and commercial totals', async () => {
+  const [base] = await database().select().from(products);
+  const productId = randomUUID();
+  await database()
+    .insert(products)
+    .values({
+      ...base,
+      id: productId,
+      sku: 'FURN-' + productId,
+      supplierSku: 'FURN',
+      status: 'Active',
+      details: { ...base.details, stockUnit: 'Each' },
+    });
+  const locationId = randomUUID();
+  await database()
+    .insert(stockLocations)
+    .values({
+      id: locationId,
+      name: 'Furniture test ' + locationId,
+      type: 'Physical',
+      active: true,
+    });
+  await database()
+    .insert(stockBalances)
+    .values({
+      id: randomUUID(),
+      productId,
+      locationId,
+      physical: 2,
+      reserved: 0,
+      display: 0,
+    });
+  async function mutate(action: CommerceAction) {
+    const [w] = await database().select().from(workspaces);
+    const r = await request('commerce', 'POST', {
+      requestId: randomUUID(),
+      version: w.version,
+      action,
+    });
+    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+    return r.json() as Promise<any>;
+  }
+  const [w] = await database().select().from(workspaces);
+  const created = await mutate({
+    type: 'create-order',
+    input: {
+      requestId: randomUUID(),
+      customerId: w.data.customers[0].id,
+      channel: 'Shopify',
+      sourceRef: 'FURNITURE-JOURNEY',
+      lines: [
+        { route: 'ProBuild', quantity: 3 },
+        { route: 'Flat Pack Pro', quantity: 2 },
+      ].map((l) => ({
+        ...l,
+        route: l.route as any,
+        productId,
+        name: 'Oak wardrobe',
+        supplier: 'Test',
+        article: '',
+        unitPence: 12000,
+        options: '',
+      })),
+      deliveryPence: 0,
+      note: '',
+      now: Date.now(),
+    },
+  });
+  const order = created.data.operations.cases.find(
+    (o: any) => o.id === created.id,
+  );
+  const path = 'orders/' + order.id + '/fulfilment';
+  let project: any = await (await request(path)).json();
+  assert.equal(
+    (await request(path, 'GET', undefined, warehouseCookie)).status,
+    403,
+  );
+  assert.equal(
+    (await request(path, 'POST', { action: 'prepare', token: project.token }))
+      .status,
+    422,
+  );
+  await mutate({ type: 'issue-invoice', id: order.invoice, now: Date.now() });
+  await mutate({
+    type: 'pay-invoice',
+    id: order.invoice,
+    payment: {
+      id: randomUUID(),
+      amountPence: 60000,
+      reference: 'FURN-PAID',
+      method: 'Cash',
+      at: Date.now(),
+    },
+  });
+  project = await (await request(path)).json();
+  const token = project.token;
+  const concurrent = await Promise.all([
+    request(path, 'POST', { action: 'prepare', token }),
+    request(path, 'POST', { action: 'prepare', token }),
+  ]);
+  for (const r of concurrent)
+    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  project = await concurrent[1].json();
+  assert.equal(project.purchases.length, 1);
+  assert.equal(
+    project.groups.reduce(
+      (n: number, g: any) => n + g.materials[0].incoming,
+      0,
+    ),
+    3,
+    'incoming cannot cover two groups twice',
+  );
+  let reservations = await database()
+    .select()
+    .from(stockReservations)
+    .where(eq(stockReservations.orderId, order.id));
+  assert.equal(
+    reservations.reduce((n, r) => n + r.quantity, 0),
+    2,
+  );
+  const poId = project.purchases[0].id;
+  const [poLine] = await database()
+    .select()
+    .from(purchaseItems)
+    .where(eq(purchaseItems.purchaseOrderId, poId));
+  assert.equal(poLine.quantity, 3);
+  const source = project.groups[0].id;
+  let r = await request(path, 'POST', {
+    action: 'split',
+    token: project.token,
+    groupId: source,
+    reason: 'Customer requested staged delivery',
+    lines: [{ id: order.lines[0].id, quantity: 2 }],
+  });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  project = await r.json();
+  assert.equal(project.groups.length, 3);
+  assert.equal(project.groups[0].ready, true);
+  assert.equal(
+    (
+      await request(path, 'POST', {
+        action: 'split',
+        token,
+        groupId: source,
+        reason: 'Stale request retry',
+        lines: [{ id: order.lines[0].id, quantity: 1 }],
+      })
+    ).status,
+    409,
+  );
+  const [afterSplit] = await database().select().from(workspaces);
+  const splitOrder = afterSplit.data.operations.cases.find(
+    (o) => o.id === order.id,
+  )!;
+  assert.equal(splitOrder.total, 600);
+  assert.equal(
+    splitOrder.lines.reduce((n, l) => n + l.quantity, 0),
+    5,
+  );
+  assert.equal(
+    invoiceTotals(afterSplit.data.invoices.find((i) => i.id === order.invoice)!)
+      .total,
+    60000,
+  );
+  assert.ok(parseSavedCommerce(JSON.stringify(afterSplit.data)));
+  reservations = await database()
+    .select()
+    .from(stockReservations)
+    .where(eq(stockReservations.orderId, order.id));
+  assert.equal(
+    reservations.reduce((n, r) => n + r.quantity, 0),
+    2,
+  );
+  r = await request(path, 'POST', {
+    action: 'delivery',
+    token: project.token,
+    groupId: source,
+  });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  project = await r.json();
+  assert.equal(project.deliveries.length, 1);
+  assert.equal(project.assemblies.length, 1);
+  assert.equal(
+    (
+      await request(path, 'POST', {
+        action: 'delivery',
+        token: project.token,
+        groupId: source,
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(path, 'POST', {
+        action: 'split',
+        token: project.token,
+        groupId: source,
+        reason: 'Already booked group',
+        lines: [{ id: order.lines[0].id, quantity: 1 }],
+      })
+    ).status,
+    422,
+  );
+  const activeReservation = (
+    await database()
+      .select()
+      .from(stockReservations)
+      .where(eq(stockReservations.orderId, order.id))
+  ).find((r) => r.groupId === source)!;
+  assert.equal(
+    (
+      await request('inventory/movements', 'POST', {
+        requestId: randomUUID(),
+        type: 'Customer Delivery',
+        productId,
+        locationId,
+        orderId: order.id,
+        reservationId: activeReservation.id,
+        quantity: activeReservation.quantity,
+        reason: 'Bypass attempt',
+      })
+    ).status,
+    422,
+  );
+  let [job] = await database()
+    .select()
+    .from(deliveryJobs)
+    .where(eq(deliveryJobs.id, project.deliveries[0].id));
+  r = await request('operations/deliveries/' + job.id, 'PUT', {
+    version: job.version,
+    title: job.title,
+    customerId: job.customerId,
+    orderId: job.orderId,
+    assignedUserId: managerId,
+    details: {
+      ...job.details,
+      scheduledDate: '2027-03-15',
+      timeSlot: '09:00–12:00',
+      customerConfirmed: true,
+    },
+  });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  job = (await r.json()) as any;
+  for (const status of [
+    'Ready to Book',
+    'Booked',
+    'Confirmed',
+    'Out for Delivery',
+    'Delivered',
+  ]) {
+    r = await request('operations/deliveries/' + job.id, 'PATCH', {
+      version: job.version,
+      status,
+      ...(status === 'Delivered'
+        ? { evidence: 'Customer signature: synthetic staged delivery' }
+        : {}),
+    });
+    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+    job = (await r.json()) as any;
+  }
+  project = await (await request(path)).json();
+  assert.equal(project.groups.filter((g: any) => g.delivered).length, 1);
+  assert.equal(project.groups[0].materials[0].delivered, 1);
+  const [balance] = await database()
+    .select()
+    .from(stockBalances)
+    .where(eq(stockBalances.productId, productId));
+  assert.equal(balance.physical, 1);
+  assert.equal(balance.reserved, 1);
+  const [ledger] = await database().select().from(workspaces);
+  assert.notEqual(
+    ledger.data.operations.cases.find((o) => o.id === order.id)!.status,
+    'Complete',
+  );
+  r = await request('commerce', 'POST', {
+    requestId: randomUUID(),
+    version: ledger.version,
+    action: {
+      type: 'operation',
+      action: {
+        type: 'evidence',
+        id: order.id,
+        groupId: source,
+        event: 'delivery',
+        detail: 'Manual shortcut',
+        now: Date.now(),
+      },
+    },
+  });
+  assert.equal(r.status, 422);
+  // Historical receipt flags cannot substitute for physical allocations.
+  const { deliveryReady } =
+    await import('../../server/services/order-progress');
+  assert.equal(
+    deliveryReady(
+      {
+        ...splitOrder,
+        groups: splitOrder.groups.map((g) => ({ ...g, receipt: true })),
+      },
+      [],
+      source,
+    ),
+    false,
+  );
+  r = await request(path, 'POST', { action: 'prepare', token: project.token });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  assert.equal(
+    ((await r.json()) as any).purchases.length,
+    1,
+    'retries after partial delivery do not duplicate incoming supply',
+  );
 });

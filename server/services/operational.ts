@@ -335,6 +335,29 @@ export async function saveRecord(
             'GROUP_REQUIRED',
             'Select the sales order fulfilment group.',
           );
+        const group = order.data.groups.find((g) => g.id === groupId)!;
+        if (prior && prior.details.groupId !== groupId)
+          throw new AppError(
+            422,
+            'LOCKED_GROUP',
+            'An existing job cannot change its shipment group.',
+          );
+        if (
+          !prior &&
+          (module === 'deliveries'
+            ? group.delivery
+            : group.assembly === 'Complete')
+        )
+          throw new AppError(
+            422,
+            'GROUP_COMPLETE',
+            'This shipment is already complete. Use a service case for further work.',
+          );
+        if (module === 'deliveries')
+          data.details.assemblyRequired = [
+            'ProBuild',
+            'Flat Pack Pro',
+          ].includes(group.route);
         const activeJobs = await tx
           .select()
           .from(table)

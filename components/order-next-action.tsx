@@ -45,6 +45,40 @@ export function OrderNextAction({ order }: { order: OrderCase }) {
         </Link>
       </section>
     );
+  if (
+    process.env.NEXT_PUBLIC_CRM_MODE !== 'preview' ||
+    process.env.NODE_ENV === 'production'
+  )
+    return (
+      <section className="next-action-panel" aria-label="Next action">
+        <div className="next-action-label">CONNECTED FULFILMENT</div>
+        <h2>
+          {done
+            ? 'Review completion & actual costs'
+            : !paid
+              ? 'Verify payment'
+              : 'Manage stock & shipments'}
+        </h2>
+        <p>
+          {done
+            ? 'Delivery and assembly evidence are linked to this order. Review actual costs before treating profit as final.'
+            : !paid
+              ? 'Confirm payment on the invoice before allocating stock and releasing deliveries.'
+              : 'See stock shortages, purchase orders, delivery jobs and assembly sign-off in one workflow.'}
+        </p>
+        <Link
+          className="btn btn-primary"
+          href={
+            !paid
+              ? '/invoices/' + order.invoice
+              : '/orders/' + order.id + '?tab=fulfilment'
+          }
+        >
+          {!paid ? 'Open invoice' : 'Open fulfilment'}
+          <ArrowRight size={16} />
+        </Link>
+      </section>
+    );
   const title = done
     ? 'Completion evidence recorded'
     : !paid

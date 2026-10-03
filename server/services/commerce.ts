@@ -13,6 +13,10 @@ import {
   suppliers,
   settings,
   approvals,
+  stockReservations,
+  purchaseOrders,
+  deliveryJobs,
+  assemblyJobs,
 } from '../db/schema';
 import {
   applyCommerce,
@@ -282,6 +286,44 @@ export async function mutateCommerce(staff: Staff, input: unknown) {
       const order = row.data.operations.cases.find(
         (v) => v.id === action.action.id,
       );
+      if (order && !order.flooringLeadId && action.action.type === 'evidence')
+        throw new AppError(
+          422,
+          'FULFILMENT_WORKFLOW',
+          'Record stock, delivery and assembly evidence in the connected fulfilment workflow.',
+        );
+      if (
+        order &&
+        !order.flooringLeadId &&
+        ['line', 'route', 'revise'].includes(action.action.type)
+      ) {
+        const reservations = await tx
+          .select()
+          .from(stockReservations)
+          .where(eq(stockReservations.orderId, order.id));
+        const purchases = await tx
+          .select()
+          .from(purchaseOrders)
+          .where(eq(purchaseOrders.orderId, order.id));
+        const deliveries = await tx
+          .select()
+          .from(deliveryJobs)
+          .where(eq(deliveryJobs.orderId, order.id));
+        const assemblies = await tx
+          .select()
+          .from(assemblyJobs)
+          .where(eq(assemblyJobs.orderId, order.id));
+        if (
+          reservations.some((r) => r.status !== 'Released') ||
+          purchases.some((p) => p.status !== 'Cancelled') ||
+          [...deliveries, ...assemblies].some((j) => j.status !== 'Cancelled')
+        )
+          throw new AppError(
+            422,
+            'FULFILMENT_LOCKED',
+            'Supply or fulfilment is already linked. Use shipment splitting or a service case instead of changing ordered products.',
+          );
+      }
       if (
         order?.flooringLeadId &&
         ['line', 'route', 'revise', 'evidence'].includes(action.action.type)
