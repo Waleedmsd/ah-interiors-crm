@@ -2006,3 +2006,508 @@ test('due task reminders reach the assigned staff and are deduplicated', async (
     1,
   );
 });
+
+test('flooring acceptance, shortage buying, allocation and fitting are connected, guarded and repeat-safe', async () => {
+  const [ledger] = await database().select().from(workspaces);
+  const [base] = await database().select().from(products);
+  const productId = randomUUID();
+  await database()
+    .insert(products)
+    .values({
+      ...base,
+      id: productId,
+      name: 'Workflow carpet',
+      sku: 'FLOOR-WORKFLOW',
+      supplierSku: 'FW',
+      supplierCostPence: 500,
+      sellingPricePence: 1234,
+      details: { ...base.details, stockUnit: 'm²' },
+    });
+  const fitterId = randomUUID(),
+    otherFitterId = randomUUID();
+  const passwordHash = await hashPassword(password);
+  await database()
+    .insert(users)
+    .values([
+      {
+        id: fitterId,
+        name: 'Assigned flooring fitter',
+        email: 'fitter@test.invalid',
+        role: 'Installer',
+        passwordHash,
+      },
+      {
+        id: otherFitterId,
+        name: 'Other flooring fitter',
+        email: 'other-fitter@test.invalid',
+        role: 'Installer',
+        passwordHash,
+      },
+    ]);
+  const fitterLogin = await request(
+    'auth/login',
+    'POST',
+    { email: 'fitter@test.invalid', password },
+    '',
+  );
+  const fitterCookie = fitterLogin.headers.get('set-cookie')!.split(';')[0];
+  const otherLogin = await request(
+    'auth/login',
+    'POST',
+    { email: 'other-fitter@test.invalid', password },
+    '',
+  );
+  const otherCookie = otherLogin.headers.get('set-cookie')!.split(';')[0];
+  const details = {
+    ...blankDetails('flooring'),
+    measureDate: '2026-10-05',
+    surveyor: 'Test surveyor',
+    rooms: [
+      {
+        name: 'Lounge',
+        length: 3.5,
+        width: 3.75,
+        wastePercent: 0,
+        stairs: false,
+        landing: false,
+        underlay: '',
+        accessories: '',
+        notes: '',
+      },
+    ],
+    quote: {
+      lines: [{ productId, quantity: 13.125, unitPricePence: 1234 }],
+      underlayPence: 0,
+      accessoriesPence: 0,
+      fittingPence: 5000,
+      removalPence: 0,
+      deliveryPence: 0,
+      discountPence: 111,
+      costPence: 8000,
+    },
+  };
+  const createLead = async () => {
+    let r = await request('operations/flooring', 'POST', {
+      title: 'Flooring workflow test',
+      customerId: ledger.data.customers[0].id,
+      assignedUserId: managerId,
+      details,
+    });
+    assert.equal(r.status, 201, JSON.stringify(await r.clone().json()));
+    let l: any = await r.json();
+    for (const status of ['Measure Booked', 'Measure Completed', 'Quote']) {
+      r = await request('operations/flooring/' + l.id, 'PATCH', {
+        version: l.version,
+        status,
+      });
+      assert.equal(r.status, 200);
+      l = await r.json();
+    }
+    return l;
+  };
+  const lead = await createLead();
+  const path = 'flooring/' + lead.id;
+  assert.equal(
+    (
+      await request('operations/flooring/' + lead.id, 'PATCH', {
+        version: lead.version,
+        status: 'Won',
+      })
+    ).status,
+    422,
+  );
+  assert.equal(
+    (
+      await request(
+        path + '/accept',
+        'POST',
+        { version: lead.version, evidence: 'Customer accepted' },
+        warehouseCookie,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(path + '/accept', 'POST', {
+        version: lead.version - 1,
+        evidence: 'Customer accepted',
+      })
+    ).status,
+    409,
+  );
+  let r = await request(path + '/accept', 'POST', {
+    version: lead.version,
+    evidence: 'Signed quote accepted',
+  });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  const accepted: any = await r.json();
+  r = await request(path + '/accept', 'POST', {
+    version: lead.version,
+    evidence: 'Retry',
+  });
+  assert.equal(r.status, 200);
+  assert.equal(((await r.json()) as any).orderId, accepted.orderId);
+  let project: any = await (await request(path + '/fulfilment')).json();
+  assert.equal(project.totalPence, 21085);
+  assert.equal(project.materials[0].quantity, 13.125);
+  const [afterAccept] = await database().select().from(workspaces);
+  const order = afterAccept.data.operations.cases.find(
+    (o) => o.id === accepted.orderId,
+  )!;
+  assert.equal(order.lines[0].quantity, 13.125);
+  assert.equal(order.lines[0].unit, 'm²');
+  assert.equal(order.total, 210.85);
+  assert.equal(order.discountPence, 111);
+  assert.equal(
+    afterAccept.data.operations.cases.filter(
+      (o) => o.flooringLeadId === lead.id,
+    ).length,
+    1,
+  );
+  assert.ok(parseSavedCommerce(JSON.stringify(afterAccept.data)));
+  const invoice = afterAccept.data.invoices.find(
+    (i) => i.orderId === order.id,
+  )!;
+  assert.equal(invoiceTotals(invoice).total, 21085);
+  assert.equal(invoice.lines[0].unit, 'm²');
+  assert.equal(
+    (
+      await request('operations/flooring/' + lead.id, 'PUT', {
+        version: lead.version + 1,
+        title: lead.title,
+        customerId: lead.customerId,
+        orderId: accepted.orderId,
+        assignedUserId: managerId,
+        details: { ...details, quote: { ...details.quote, discountPence: 0 } },
+      })
+    ).status,
+    422,
+  );
+  assert.equal(
+    (await request(path + '/fulfilment', 'GET', undefined, otherCookie)).status,
+    403,
+  );
+  await database()
+    .insert(stockBalances)
+    .values({
+      id: productId + ':test-warehouse',
+      productId,
+      locationId: 'test-warehouse',
+      physical: 5.125,
+      reserved: 0,
+      display: 0,
+    });
+  const act = async (payload: any, cookie = managerCookie, expected = 200) => {
+    const response = await request(
+      path + '/fulfilment',
+      'POST',
+      { version: project.version, ...payload },
+      cookie,
+    );
+    assert.equal(
+      response.status,
+      expected,
+      JSON.stringify(await response.clone().json()),
+    );
+    if (expected === 200) project = await response.json();
+    return response;
+  };
+  const date = '2027-03-15';
+  await act(
+    {
+      action: 'book',
+      fitterId,
+      scheduledDate: date,
+      timeSlot: 'AM',
+      customerConfirmed: true,
+      notes: '',
+    },
+    managerCookie,
+    422,
+  );
+  await act({ action: 'prepare' });
+  assert.equal(project.materials[0].allocated, 5.125);
+  assert.equal(project.materials[0].incoming, 8);
+  assert.equal(project.purchases.length, 1);
+  await act({ action: 'prepare' });
+  assert.equal(
+    project.purchases.length,
+    1,
+    'repeat prepare must not duplicate purchase demand',
+  );
+  let [po] = await database()
+    .select()
+    .from(purchaseOrders)
+    .where(eq(purchaseOrders.id, project.purchases[0].id));
+  const [item] = await database()
+    .select()
+    .from(purchaseItems)
+    .where(eq(purchaseItems.purchaseOrderId, po.id));
+  assert.equal(item.quantity, 8);
+  for (const status of [
+    'Ready to Send',
+    'Sent',
+    'Awaiting Confirmation',
+    'Confirmed',
+  ]) {
+    r = await request('purchase-orders/' + po.id, 'PATCH', {
+      version: po.version,
+      status,
+    });
+    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+    po = (await r.json()) as any;
+  }
+  r = await request('inventory/movements', 'POST', {
+    requestId: randomUUID(),
+    type: 'Goods Received',
+    productId,
+    locationId: 'test-warehouse',
+    purchaseOrderId: po.id,
+    quantity: 8,
+    reason: 'Flooring material received',
+  });
+  assert.equal(r.status, 201, JSON.stringify(await r.clone().json()));
+  await act({ action: 'prepare' });
+  assert.equal(project.ready, true);
+  assert.equal(project.materials[0].allocated, 13.125);
+  await act({
+    action: 'book',
+    fitterId,
+    scheduledDate: date,
+    timeSlot: 'AM',
+    customerConfirmed: true,
+    notes: 'Access through rear door',
+  });
+  const assignedView = await request(
+    path + '/fulfilment',
+    'GET',
+    undefined,
+    fitterCookie,
+  );
+  assert.equal(assignedView.status, 200);
+  const safe: any = await assignedView.json();
+  assert.equal(safe.profit, undefined);
+  assert.equal(safe.snapshot, undefined);
+  assert.equal(safe.totalPence, undefined);
+  assert.equal(safe.materials[0].unitCostPence, undefined);
+  const otherList: any = await (
+    await request('flooring/fittings', 'GET', undefined, otherCookie)
+  ).json();
+  assert.equal(otherList.length, 0);
+  await act({ action: 'start', evidence: '' }, fitterCookie, 422);
+  const second = await createLead();
+  r = await request('flooring/' + second.id + '/accept', 'POST', {
+    version: second.version,
+    evidence: 'Second accepted job',
+  });
+  assert.equal(r.status, 200);
+  const secondProject: any = await (
+    await request('flooring/' + second.id + '/fulfilment')
+  ).json();
+  r = await request('flooring/' + second.id + '/fulfilment', 'POST', {
+    version: secondProject.version,
+    action: 'book',
+    fitterId,
+    scheduledDate: date,
+    timeSlot: '09:00–10:00',
+    customerConfirmed: true,
+    notes: '',
+  });
+  assert.equal(
+    r.status,
+    409,
+    'overlapping booking must be rejected before material check',
+  );
+  const mutate = async (action: CommerceAction) => {
+    const [l] = await database().select().from(workspaces);
+    const res = await request('commerce', 'POST', {
+      requestId: randomUUID(),
+      version: l.version,
+      action,
+    });
+    assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+  };
+  await mutate({ type: 'issue-invoice', id: invoice.id, now: Date.now() });
+  await mutate({
+    type: 'pay-invoice',
+    id: invoice.id,
+    payment: {
+      id: randomUUID(),
+      amountPence: 21085,
+      method: 'Bank transfer',
+      reference: 'FLOOR-TEST-PAID',
+      at: Date.now(),
+    },
+  });
+  await act(
+    { action: 'start', evidence: 'Materials loaded for fitter' },
+    fitterCookie,
+  );
+  assert.equal(project.status, 'In Progress');
+  await act(
+    { action: 'start', evidence: 'Duplicate start' },
+    fitterCookie,
+    422,
+  );
+  await act(
+    { action: 'issue', evidence: 'Skirting needs customer decision' },
+    fitterCookie,
+  );
+  assert.ok(project.caseId);
+  assert.equal(project.status, 'Issue');
+  await act(
+    { action: 'start', evidence: 'Customer decision recorded' },
+    fitterCookie,
+  );
+  assert.equal(project.status, 'In Progress');
+  let [stock] = await database()
+    .select()
+    .from(stockBalances)
+    .where(eq(stockBalances.productId, productId));
+  assert.equal(stock.physical, 0);
+  assert.equal(stock.reserved, 0);
+  await act(
+    { action: 'complete', evidence: 'Customer Test signed off' },
+    fitterCookie,
+    422,
+  );
+  const bytes = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=',
+    'base64',
+  );
+  r = await handleApi(
+    new Request(
+      origin + '/api/attachments?entity=flooring-fitting&entityId=' + lead.id,
+      {
+        method: 'POST',
+        headers: {
+          origin,
+          cookie: fitterCookie,
+          'x-filename': 'completion.png',
+        },
+        body: bytes,
+      },
+    ),
+  );
+  assert.equal(r.status, 201, JSON.stringify(await r.clone().json()));
+  await act(
+    { action: 'complete', evidence: 'Customer Test signed off' },
+    fitterCookie,
+  );
+  assert.equal(project.status, 'Completed');
+  await act(
+    { action: 'complete', evidence: 'Duplicate completion' },
+    fitterCookie,
+    422,
+  );
+  const [final] = await database().select().from(workspaces);
+  const completed = final.data.operations.cases.find((o) => o.id === order.id)!;
+  assert.ok(
+    completed.groups.every((g) => g.delivery && g.assembly === 'Complete'),
+  );
+  assert.ok(parseSavedCommerce(JSON.stringify(final.data)));
+  const finalLeads: any[] = await (await request('operations/flooring')).json();
+  assert.equal(finalLeads.find((l) => l.id === lead.id).status, 'Completed');
+  assert.equal(completed.status, 'Complete');
+  const documents: any[] = await (
+    await request('documents', 'GET', undefined, fitterCookie)
+  ).json();
+  assert.ok(
+    documents.some(
+      (d) => d.entity === 'flooring-fitting' && d.entityId === lead.id,
+    ),
+  );
+  const otherDocuments: any[] = await (
+    await request('documents', 'GET', undefined, otherCookie)
+  ).json();
+  assert.ok(!otherDocuments.some((d) => d.entityId === lead.id));
+  const salesId = randomUUID();
+  await database()
+    .insert(users)
+    .values({
+      id: salesId,
+      name: 'Flooring sales',
+      email: 'flooring-sales@test.invalid',
+      role: 'Customer Service & Sales',
+      passwordHash,
+    });
+  const salesLogin = await request(
+    'auth/login',
+    'POST',
+    { email: 'flooring-sales@test.invalid', password },
+    '',
+  );
+  const salesCookie = salesLogin.headers.get('set-cookie')!.split(';')[0];
+  const salesLeads: any[] = await (
+    await request('operations/flooring', 'GET', undefined, salesCookie)
+  ).json();
+  const safeLead = salesLeads.find((l) => l.id === lead.id);
+  assert.equal(safeLead.profitability, null);
+  assert.equal(safeLead.details.quote.costPence, 0);
+  const low = await createLead();
+  const lowDetails = {
+    ...details,
+    quote: {
+      ...details.quote,
+      lines: [{ productId, quantity: 13.125, unitPricePence: 100 }],
+    },
+  };
+  r = await request('operations/flooring/' + low.id, 'PUT', {
+    version: low.version,
+    title: low.title,
+    customerId: low.customerId,
+    assignedUserId: managerId,
+    details: lowDetails,
+  });
+  assert.equal(r.status, 200);
+  const lowSaved: any = await r.json();
+  r = await request(
+    'flooring/' + low.id + '/accept',
+    'POST',
+    { version: lowSaved.version, evidence: 'Customer accepted' },
+    salesCookie,
+  );
+  assert.equal(r.status, 422);
+  assert.equal(((await r.json()) as any).error.code, 'MARGIN_APPROVAL');
+  const ordinaryRequest = {
+    type: 'create-order',
+    input: {
+      requestId: randomUUID(),
+      customerId: lead.customerId,
+      channel: 'Website',
+      sourceRef: 'FRACTION-REJECT',
+      lines: [
+        {
+          name: 'Each item',
+          supplier: 'Test',
+          article: 'T',
+          quantity: 1.125,
+          unitPence: 1000,
+          options: '',
+          route: 'ProBuild',
+        },
+      ],
+      deliveryPence: 0,
+      note: '',
+      now: Date.now(),
+    },
+  };
+  const [ordinaryLedger] = await database().select().from(workspaces);
+  r = await request('commerce', 'POST', {
+    version: ordinaryLedger.version,
+    requestId: randomUUID(),
+    action: ordinaryRequest,
+  });
+  assert.equal(
+    r.status,
+    422,
+    'ordinary public order creation remains whole-unit',
+  );
+
+  [stock] = await database()
+    .select()
+    .from(stockBalances)
+    .where(eq(stockBalances.productId, productId));
+  assert.equal(stock.physical, 0);
+});

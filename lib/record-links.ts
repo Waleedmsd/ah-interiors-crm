@@ -7,6 +7,7 @@ const routes: Record<string, string> = {
 export function recordHref(entity: string, id: string) {
   entity = recordEntity(entity);
   const key = encodeURIComponent(id);
+  if (entity === 'flooring-fitting') return '/flooring/fitting?record=' + key;
   if (entity === 'stock-movement') return '/inventory?movement=' + key;
   if (entity === 'order') return '/orders/' + key;
   if (entity === 'invoice') return '/invoices/' + key;

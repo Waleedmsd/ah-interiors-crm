@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validSalesQuantity } from '../lib/sales-quantity';
 const text = z.string().trim().max(10000);
 const id = z.string().trim().min(1).max(128);
 const money = z.number().int().min(0).max(1000000000);
@@ -32,10 +33,15 @@ const invoiceInput = z
           .object({
             id,
             description: text.min(1),
-            quantity: z.number().int().min(1).max(10000),
+            quantity: z.number().positive().max(10000),
+            unit: z.enum(['Each', 'Pack', 'm²', 'Metre']).optional(),
             unitPence: money,
           })
-          .strict(),
+          .strict()
+          .refine(
+            validSalesQuantity,
+            'Use whole quantities unless the line explicitly uses a measured unit.',
+          ),
       )
       .min(1)
       .max(200),

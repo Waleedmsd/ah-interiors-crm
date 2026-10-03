@@ -71,6 +71,12 @@ import {
 import { listDrafts, saveDraft } from './services/communications';
 import { businessOptions } from './services/business-options';
 import { runJobs } from './jobs';
+import {
+  acceptFlooring,
+  flooringProject,
+  listFittings,
+  actOnFlooring,
+} from './services/flooring';
 export function json(
   data: unknown,
   status = 200,
@@ -130,6 +136,18 @@ async function attachmentAccess(
   entityId: string,
   write = false,
 ) {
+  if (entity === 'flooring-fitting') {
+    const project = await flooringProject(staff, entityId);
+    if (!project)
+      throw new AppError(404, 'NOT_FOUND', 'Fitting job not found.');
+    if (write && project.status === 'Completed')
+      throw new AppError(
+        422,
+        'LOCKED',
+        'Completed fitting evidence is locked.',
+      );
+    return;
+  }
   if (entity in businessModules) {
     const rows = await listRecords(staff, entity as BusinessModule);
     if (!rows.some((v) => v.id === entityId))
@@ -221,6 +239,20 @@ export async function handleApi(request: Request): Promise<Response> {
     }
     const staff = await currentStaff(request);
     if (path === 'auth/me' && method === 'GET') return json({ user: staff });
+    if (path === 'flooring/fittings' && method === 'GET')
+      return json(await listFittings(staff));
+    if (/^flooring\/[^/]+\/accept$/.test(path) && method === 'POST')
+      return json(
+        await acceptFlooring(staff, path.split('/')[1], await body(request)),
+      );
+    if (/^flooring\/[^/]+\/fulfilment$/.test(path)) {
+      if (method === 'GET')
+        return json(await flooringProject(staff, path.split('/')[1]));
+      if (method === 'POST')
+        return json(
+          await actOnFlooring(staff, path.split('/')[1], await body(request)),
+        );
+    }
     if (path === 'integrations/shopify/configure' && method === 'POST')
       return json(await configureShopify(staff, await body(request)));
     if (path === 'integrations/shopify' && method === 'GET')
@@ -373,7 +405,12 @@ export async function handleApi(request: Request): Promise<Response> {
           : [],
         products: operational
           ? await db
-              .select({ id: products.id, name: products.name })
+              .select({
+                id: products.id,
+                name: products.name,
+                unit: sql<string>`coalesce(${products.details}->>'stockUnit', 'Each')`,
+                sellingPricePence: products.sellingPricePence,
+              })
               .from(products)
           : [],
         staff: ['Management', 'Team Lead', 'Customer Service & Sales'].includes(
@@ -470,23 +507,19 @@ export async function handleApi(request: Request): Promise<Response> {
         .parse(await body(request));
       const id = randomUUID();
       await db.transaction(async (tx) => {
-        await tx
-          .insert(users)
-          .values({
-            ...input,
-            id,
-            email: input.email.toLowerCase(),
-            passwordHash: await hashPassword(input.password),
-          });
-        await tx
-          .insert(auditLogs)
-          .values({
-            userId: staff.id,
-            entity: 'user',
-            entityId: id,
-            action: 'created',
-            after: { name: input.name, role: input.role },
-          });
+        await tx.insert(users).values({
+          ...input,
+          id,
+          email: input.email.toLowerCase(),
+          passwordHash: await hashPassword(input.password),
+        });
+        await tx.insert(auditLogs).values({
+          userId: staff.id,
+          entity: 'user',
+          entityId: id,
+          action: 'created',
+          after: { name: input.name, role: input.role },
+        });
       });
       return json({ id }, 201);
     }
@@ -539,20 +572,18 @@ export async function handleApi(request: Request): Promise<Response> {
           .set({ ...patch, updatedAt: new Date() })
           .where(eq(users.id, id));
         await tx.delete(sessions).where(eq(sessions.userId, id));
-        await tx
-          .insert(auditLogs)
-          .values({
-            userId: staff.id,
-            entity: 'user',
-            entityId: id,
-            action: 'updated',
-            before: {
-              role: prior.role,
-              active: prior.active,
-              name: prior.name,
-            },
-            after: patch,
-          });
+        await tx.insert(auditLogs).values({
+          userId: staff.id,
+          entity: 'user',
+          entityId: id,
+          action: 'updated',
+          before: {
+            role: prior.role,
+            active: prior.active,
+            name: prior.name,
+          },
+          after: patch,
+        });
       });
       return json({ ok: true });
     }
@@ -620,16 +651,14 @@ export async function handleApi(request: Request): Promise<Response> {
             target: settings.key,
             set: { value: input, updatedBy: staff.id, updatedAt: new Date() },
           });
-        await tx
-          .insert(auditLogs)
-          .values({
-            userId: staff.id,
-            entity: 'settings',
-            entityId: 'business',
-            action: 'updated',
-            before: prior?.value,
-            after: input,
-          });
+        await tx.insert(auditLogs).values({
+          userId: staff.id,
+          entity: 'settings',
+          entityId: 'business',
+          action: 'updated',
+          before: prior?.value,
+          after: input,
+        });
       });
       return json({ ok: true });
     }
@@ -711,27 +740,23 @@ export async function handleApi(request: Request): Promise<Response> {
       await storage.put(id, bytes);
       try {
         await db.transaction(async (tx) => {
-          await tx
-            .insert(attachments)
-            .values({
-              id,
-              entity,
-              entityId,
-              filename,
-              mime,
-              bytes: bytes.length,
-              storageKey: id,
-              uploadedBy: staff.id,
-            });
-          await tx
-            .insert(auditLogs)
-            .values({
-              userId: staff.id,
-              entity,
-              entityId,
-              action: 'attachment-uploaded',
-              after: { attachmentId: id, filename, bytes: bytes.length },
-            });
+          await tx.insert(attachments).values({
+            id,
+            entity,
+            entityId,
+            filename,
+            mime,
+            bytes: bytes.length,
+            storageKey: id,
+            uploadedBy: staff.id,
+          });
+          await tx.insert(auditLogs).values({
+            userId: staff.id,
+            entity,
+            entityId,
+            action: 'attachment-uploaded',
+            after: { attachmentId: id, filename, bytes: bytes.length },
+          });
         });
       } catch (error) {
         await storage.remove(id);

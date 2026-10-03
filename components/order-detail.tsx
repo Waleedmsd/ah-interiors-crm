@@ -89,9 +89,13 @@ export function OrderDetail({ id }: { id: string }) {
             </Link>
             <Link
               className="btn"
-              href={'/deliveries?create=1&order=' + encodeURIComponent(id)}
+              href={
+                order.flooringLeadId
+                  ? '/flooring/fitting?record=' + order.flooringLeadId
+                  : '/deliveries?create=1&order=' + encodeURIComponent(id)
+              }
             >
-              Book delivery
+              {order.flooringLeadId ? 'Materials & fitting' : 'Book delivery'}
             </Link>
           </>
         }
@@ -237,7 +241,25 @@ export function OrderDetail({ id }: { id: string }) {
               <OrderProducts order={order} />
             </TabsContent>
             <TabsContent value="fulfilment">
-              <FulfilmentPanel order={order} />
+              <>
+                {order.flooringLeadId ? (
+                  <section className="ops-tab-body">
+                    <h2>Flooring materials & fitting</h2>
+                    <p>
+                      Material allocation, dispatch and fitting sign-off are
+                      managed together on the linked flooring job.
+                    </p>
+                    <Link
+                      className="btn btn-primary"
+                      href={'/flooring/fitting?record=' + order.flooringLeadId}
+                    >
+                      Open fitting workflow <ArrowRight size={16} />
+                    </Link>
+                  </section>
+                ) : (
+                  <FulfilmentPanel order={order} />
+                )}
+              </>
             </TabsContent>
             <TabsContent value="payment">
               <PaymentPanel order={order} />

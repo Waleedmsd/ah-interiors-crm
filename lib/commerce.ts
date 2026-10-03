@@ -1,4 +1,9 @@
 import {
+  validSalesQuantity,
+  salesLineTotal,
+  type SalesUnit,
+} from '@/lib/sales-quantity';
+import {
   createOperationsState,
   operationsReducer,
   PREVIEW_NOW,
@@ -23,6 +28,7 @@ export type InvoiceLine = {
   id: string;
   description: string;
   quantity: number;
+  unit?: SalesUnit;
   unitPence: number;
 };
 export type Payment = {
@@ -74,6 +80,7 @@ export type NewOrderLine = {
   supplier: string;
   article: string;
   quantity: number;
+  unit?: SalesUnit;
   unitPence: number;
   options: string;
   route: Route;
@@ -86,6 +93,7 @@ export type NewOrderInput = {
   sourceRef: string;
   lines: NewOrderLine[];
   deliveryPence: number;
+  discountPence?: number;
   note: string;
   now: number;
 };
@@ -141,7 +149,7 @@ export const invoiceTotals = (
   >,
 ) => {
   const subtotal = invoice.lines.reduce(
-    (sum, line) => sum + line.quantity * line.unitPence,
+    (sum, line) => sum + salesLineTotal(line),
     0,
   );
   const net = subtotal - invoice.discountPence;
@@ -224,11 +232,13 @@ export function invoiceInputForOrder(
     id: line.id,
     description: line.name + (line.options ? ' — ' + line.options : ''),
     quantity: line.quantity,
+    ...(line.unit ? { unit: line.unit } : {}),
     unitPence: pence(line.unitPrice),
   }));
   const services =
-    pence(order.total) -
-    lines.reduce((sum, line) => sum + line.quantity * line.unitPence, 0);
+    pence(order.total) +
+    (order.discountPence ?? 0) -
+    lines.reduce((sum, line) => sum + salesLineTotal(line), 0);
   if (services > 0)
     lines.push({
       id: 'services',
@@ -242,7 +252,7 @@ export function invoiceInputForOrder(
     lines,
     issueDate: dateKey(now),
     dueDate: dateKey(now + 7 * 86400000),
-    discountPence: 0,
+    discountPence: order.discountPence ?? 0,
     taxBps: 0,
     notes:
       'Order-linked total includes customer charges. Accounts must confirm VAT treatment before issuing.',
@@ -363,13 +373,11 @@ export function validateInvoiceInput(
     input.lines.some(
       (line) =>
         !line.description.trim() ||
-        !Number.isInteger(line.quantity) ||
-        line.quantity < 1 ||
-        line.quantity > 10000 ||
+        !validSalesQuantity(line) ||
         !validMoney(line.unitPence),
     )
   )
-    return 'Every line needs a description, whole quantity and a valid GBP price.';
+    return 'Every line needs a description, valid quantity for its unit and a valid GBP price.';
   if (
     !validMoney(input.discountPence) ||
     !Number.isInteger(input.taxBps) ||
@@ -566,20 +574,19 @@ export function applyCommerce(
         (line) =>
           !line.name.trim() ||
           !line.supplier.trim() ||
-          !Number.isInteger(line.quantity) ||
-          line.quantity < 1 ||
-          line.quantity > 10000 ||
+          !validSalesQuantity(line) ||
           !validMoney(line.unitPence),
       )
     )
       return fail('Add a product with supplier, quantity and a valid price.');
     if (!validMoney(input.deliveryPence))
       return fail('Enter a valid delivery and service charge.');
+    if (!validMoney(input.discountPence ?? 0))
+      return fail('Enter a valid discount.');
     const total =
-      input.lines.reduce(
-        (sum, line) => sum + line.unitPence * line.quantity,
-        0,
-      ) + input.deliveryPence;
+      input.lines.reduce((sum, line) => sum + salesLineTotal(line), 0) +
+      input.deliveryPence -
+      (input.discountPence ?? 0);
     if (!validMoney(total) || total <= 0)
       return fail('Order total must be greater than zero.');
     const id = 'L-' + String(state.nextOrder).padStart(6, '0');
@@ -630,6 +637,7 @@ export function applyCommerce(
         sku: 'Custom item',
         article: line.article.trim(),
         quantity: line.quantity,
+        ...(line.unit ? { unit: line.unit } : {}),
         unitPrice: line.unitPence / 100,
         cost: 0,
         costVerified: false,
@@ -662,6 +670,7 @@ export function applyCommerce(
         new Set(input.lines.map((line) => line.supplier)),
       ).join(' + '),
       total: total / 100,
+      discountPence: input.discountPence ?? 0,
       paid: 0,
       paymentVerified: false,
       paymentReference: 'Awaiting verified payment',
@@ -1110,8 +1119,7 @@ export function parseSavedCommerce(raw: string): CommerceState | null {
             typeof line.supplier !== 'string' ||
             typeof line.options !== 'string' ||
             !validMoney(pence(line.unitPrice)) ||
-            !Number.isInteger(line.quantity) ||
-            line.quantity < 1 ||
+            !validSalesQuantity(line) ||
             !Number.isFinite(line.cost) ||
             line.cost < 0,
         )

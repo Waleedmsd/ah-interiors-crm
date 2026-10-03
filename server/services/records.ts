@@ -10,6 +10,7 @@ import {
   purchaseOrders,
   supplierOrders,
   stockMovements,
+  flooringFulfilments,
   attachments,
   auditLogs,
   users,
@@ -104,6 +105,23 @@ export async function recordChoices(staff: Staff) {
           name: v.number + ' · ' + v.title,
         })),
       );
+  if (staff.role === 'Installer' || canUseModule(staff.role, 'flooring')) {
+    const fitting = await db
+      .select()
+      .from(flooringFulfilments)
+      .where(
+        staff.role === 'Installer'
+          ? eq(flooringFulfilments.fitterId, staff.id)
+          : undefined,
+      );
+    add(
+      'flooring-fitting',
+      fitting.map((v) => ({
+        id: v.leadId,
+        name: 'Fitting · ' + v.snapshot.customerName + ' · ' + v.orderId,
+      })),
+    );
+  }
   return result;
 }
 export async function recordAccess(staff: Staff, entity: string, id: string) {

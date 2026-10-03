@@ -16,6 +16,35 @@ export function OrderNextAction({ order }: { order: OrderCase }) {
   const approved = order.pack?.state === 'Approved';
   const review = order.pack?.state === 'Draft';
   const blockers = review ? approvalBlockers(order) : [];
+  if (order.flooringLeadId)
+    return (
+      <section className="next-action-panel" aria-label="Next action">
+        <div className="next-action-label">FLOORING WORKFLOW</div>
+        <h2>
+          {done
+            ? 'Fitting signed off'
+            : !paid
+              ? 'Confirm payment before fitting'
+              : 'Prepare materials & fitting'}
+        </h2>
+        <p>
+          {done
+            ? 'The fitting evidence and accepted quote remain linked to this order.'
+            : 'Use the connected flooring job to allocate stock, review shortage purchases and schedule fitting.'}
+        </p>
+        <Link
+          className="btn btn-primary"
+          href={
+            !paid
+              ? '/invoices/' + order.invoice
+              : '/flooring/fitting?record=' + order.flooringLeadId
+          }
+        >
+          {!paid ? 'Open invoice' : 'Open fitting job'}
+          <ArrowRight size={16} />
+        </Link>
+      </section>
+    );
   const title = done
     ? 'Completion evidence recorded'
     : !paid

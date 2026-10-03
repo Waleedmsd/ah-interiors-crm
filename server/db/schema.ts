@@ -492,3 +492,34 @@ export const communicationDrafts = pgTable('communication_drafts', {
     .notNull()
     .defaultNow(),
 });
+
+export const flooringFulfilments = pgTable(
+  'flooring_fulfilments',
+  {
+    leadId: text('lead_id')
+      .primaryKey()
+      .references(() => flooringLeads.id),
+    orderId: text('order_id')
+      .notNull()
+      .unique()
+      .references(() => orders.id),
+    snapshot: jsonb('snapshot')
+      .$type<import('../../lib/flooring-workflow').FlooringSnapshot>()
+      .notNull(),
+    status: text('status').notNull().default('Awaiting Materials'),
+    fitterId: text('fitter_id').references(() => users.id),
+    scheduledDate: text('scheduled_date').notNull().default(''),
+    timeSlot: text('time_slot').notNull().default(''),
+    customerConfirmed: boolean('customer_confirmed').notNull().default(false),
+    signoff: text('signoff').notNull().default(''),
+    notes: text('notes').notNull().default(''),
+    caseId: text('case_id').references(() => serviceCases.id),
+    version: integer('version').notNull().default(1),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index('flooring_fitter_schedule_idx').on(t.fitterId, t.scheduledDate),
+  ],
+);

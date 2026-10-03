@@ -66,6 +66,7 @@ const pageTitles: Record<string, string> = {
   '/deliveries': 'Deliveries',
   '/assembly-jobs': 'Assembly jobs',
   '/flooring': 'Flooring',
+  '/flooring/fitting': 'Materials & fitting',
   '/service-cases': 'Customer service',
   '/tasks': 'Tasks & follow-ups',
   '/expenses': 'Expenses',

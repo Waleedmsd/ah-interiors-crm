@@ -1,9 +1,11 @@
+import type { SalesUnit } from './sales-quantity';
 import { demoOrders, money, type DemoOrder } from '@/lib/demo-data';
 
 export const PREVIEW_NOW = Date.parse('2026-09-05T10:00:00Z');
 export const DAY = 24 * 60 * 60 * 1000;
 export type Channel = string;
 export type Route =
+  | 'AH flooring'
   | 'ProBuild'
   | 'Flat Pack Pro'
   | 'AH showroom → BStar'
@@ -46,6 +48,7 @@ export type Line = {
   article: string;
   colourCode?: string;
   quantity: number;
+  unit?: SalesUnit;
   unitPrice: number;
   cost: number;
   costVerified?: boolean;
@@ -117,6 +120,8 @@ export type Pack = {
 };
 export type OrderCase = DemoOrder & {
   customerId?: string;
+  flooringLeadId?: string;
+  discountPence?: number;
   creationRequest?: string;
   channel: Channel;
   sourceRef: string;
@@ -139,7 +144,9 @@ export type OperationsState = { cases: OrderCase[] };
 const sampleContact = (name: string) =>
   name.toLowerCase().replace(/[^a-z0-9]/g, '') + '@supplier.example.com';
 export const hasAssembly = (group: Group) =>
-  group.route === 'ProBuild' || group.route === 'Flat Pack Pro';
+  group.route === 'AH flooring' ||
+  group.route === 'ProBuild' ||
+  group.route === 'Flat Pack Pro';
 export const isPaid = (order: OrderCase) =>
   order.paymentVerified && order.paid >= order.total;
 export const completed = (order: OrderCase) =>

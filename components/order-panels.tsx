@@ -41,7 +41,7 @@ import { money } from '@/lib/demo-data';
 
 export function OrderProducts({ order }: { order: OrderCase }) {
   const itemTotal = order.lines.reduce(
-    (sum, line) => sum + line.quantity * line.unitPrice,
+    (sum, line) => sum + Math.round(line.quantity * line.unitPrice * 100) / 100,
     0,
   );
   return (
@@ -49,8 +49,9 @@ export function OrderProducts({ order }: { order: OrderCase }) {
       <div className="ops-muted-box">
         <strong>{order.supplierSource}</strong>
         <br />
-        Supplier identification and catalogue verification are separate. Every
-        article below is a sample—not a live ordering code.
+        {order.flooringLeadId
+          ? 'Materials and prices are locked to the accepted flooring quote. Use the linked fitting workflow to progress this order.'
+          : 'Supplier identification and catalogue verification are separate. Check each article against the supplier catalogue before ordering.'}
       </div>
       {order.lines.map((line) => (
         <ProductLine
@@ -72,8 +73,14 @@ export function OrderProducts({ order }: { order: OrderCase }) {
       {order.total !== itemTotal && (
         <div className="ops-total">
           <span>
-            Delivery{order.groups.some(hasAssembly) ? ' & assembly' : ''} ·
-            customer charge
+            {order.flooringLeadId ? (
+              'Fitting and extras, less quote discount'
+            ) : (
+              <>
+                Delivery{order.groups.some(hasAssembly) ? ' & assembly' : ''} ·
+                customer charge
+              </>
+            )}
           </span>
           <span>{money(order.total - itemTotal, 2)}</span>
         </div>
@@ -93,7 +100,10 @@ function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
     line.costVerified === false ? '' : line.cost.toFixed(2),
   );
   const locked =
-    !ready || order.pack?.state === 'Approved' || order.status !== 'New';
+    !!order.flooringLeadId ||
+    !ready ||
+    order.pack?.state === 'Approved' ||
+    order.status !== 'New';
   const dirty =
     article !== line.article ||
     matched !== line.matched ||
@@ -121,7 +131,7 @@ function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
       </div>
       <div className="ops-spec-grid">
         <label>
-          <span className="ops-field-label">Supplier article · sample</span>
+          <span className="ops-field-label">Supplier article</span>
           <input
             className="ops-inline-input"
             aria-label={'Article code for ' + line.name}

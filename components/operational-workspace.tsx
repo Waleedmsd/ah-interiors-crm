@@ -8,6 +8,7 @@ import {
   type SubmitEvent,
 } from 'react';
 import Link from 'next/link';
+import { FlooringJourney } from '@/components/flooring-fulfilment';
 import { businessDate } from '@/lib/business-date';
 import { useSearchParams } from 'next/navigation';
 import { RecordActivity } from '@/components/record-activity';
@@ -61,7 +62,13 @@ import { operationalTransitions } from '@/lib/operational-transitions';
 import { operationalDesign } from '@/components/operational-design';
 import { useAuth } from '@/components/auth-context';
 import { flooringRoom, type FlooringRoom } from '@/lib/flooring';
-type Lookup = { id: string; name: string; role?: string };
+type Lookup = {
+  id: string;
+  name: string;
+  role?: string;
+  unit?: string;
+  sellingPricePence?: number;
+};
 type OrderLookup = Lookup & {
   customerId?: string;
   address?: string;
@@ -540,6 +547,19 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
           key={field.key}
           value={value as Quote}
           products={lookups.products}
+          canViewCosts={
+            !!user &&
+            ['Management', 'Team Lead', 'Accounts'].includes(user.role)
+          }
+          measuredQuantity={(
+            (form?.details.rooms ?? []) as FlooringRoom[]
+          ).reduce((n, r) => {
+            try {
+              return n + flooringRoom(r).requiredQuantity;
+            } catch {
+              return n;
+            }
+          }, 0)}
           onChange={change}
         />
       );
@@ -679,8 +699,10 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
     }
   }
   function nextStatuses(row: RecordRow) {
+    if (module === 'flooring' && row.orderId) return [];
     const next = operationalTransitions[module][row.status] ?? [];
     return next.filter((status) => {
+      if (module === 'flooring' && status === 'Won') return false;
       if (
         ['approvals', 'expenses'].includes(module) &&
         ['Approved', 'Rejected'].includes(status)
@@ -770,7 +792,15 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
           <h1>{definition.title}</h1>
           <p>{design.description}</p>
         </div>
-        <div className="ops-header-actions">{writable && newButton()}</div>
+        <div className="ops-header-actions">
+          {module === 'flooring' && (
+            <Link className="btn" href="/flooring/fitting">
+              <CalendarDays size={16} />
+              Materials & fitting
+            </Link>
+          )}
+          {writable && newButton()}
+        </div>
       </header>
       <div className="ops-stats">
         {stats.map((stat) => (
@@ -1287,7 +1317,7 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
                       lookups.staff.filter(
                         (v) => !v.role || canUseModule(v.role, module),
                       ),
-                      module === 'tasks',
+                      module === 'tasks' || module === 'flooring',
                     )}
                     {module === 'service-cases' && (
                       <>
@@ -1377,6 +1407,19 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
                       <strong>{owner(selected)}</strong>
                     </div>
                   </div>
+                  {module === 'flooring' && (
+                    <FlooringJourney
+                      key={selected.id}
+                      lead={selected}
+                      onChange={async () => {
+                        await load();
+                        const fresh = await apiRequest<RecordRow[]>(url);
+                        setSelected(
+                          fresh.find((r) => r.id === selected.id) ?? null,
+                        );
+                      }}
+                    />
+                  )}
                   {nextStatuses(selected).length > 0 && (
                     <section className="ops-next-step">
                       <h3>Move this forward</h3>
@@ -1489,6 +1532,7 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
                 <footer className="ops-drawer-footer">
                   <span>{selected.number}</span>
                   {writable &&
+                    !(module === 'flooring' && selected.orderId) &&
                     ![
                       'Completed',
                       'Closed',
@@ -1771,7 +1815,11 @@ function QuoteEditor({
   value,
   onChange,
   products,
+  measuredQuantity,
+  canViewCosts,
 }: {
+  canViewCosts: boolean;
+  measuredQuantity: number;
   value: Quote;
   onChange: (value: unknown) => void;
   products: Lookup[];
@@ -1801,7 +1849,15 @@ function QuoteEditor({
                 onChange({
                   ...value,
                   lines: value.lines.map((v, i) =>
-                    i === index ? { ...v, productId: e.target.value } : v,
+                    i === index
+                      ? {
+                          ...v,
+                          productId: e.target.value,
+                          unitPricePence:
+                            products.find((p) => p.id === e.target.value)
+                              ?.sellingPricePence ?? v.unitPricePence,
+                        }
+                      : v,
                   ),
                 })
               }
@@ -1815,12 +1871,21 @@ function QuoteEditor({
             </select>
           </label>
           <label className="ops-field">
-            Quantity / m²
+            Quantity ·{' '}
+            {products.find((p) => p.id === line.productId)?.unit ??
+              'select product'}
             <input
               className="input"
               type="number"
-              step="0.01"
-              min={0.01}
+              step={
+                products.find((p) => p.id === line.productId)?.unit ===
+                  'Each' ||
+                products.find((p) => p.id === line.productId)?.unit === 'Pack'
+                  ? 1
+                  : 0.001
+              }
+              min={0.001}
+              aria-label={'Quantity for product ' + (index + 1)}
               value={line.quantity}
               onChange={(e) =>
                 onChange({
@@ -1834,6 +1899,29 @@ function QuoteEditor({
               }
             />
           </label>
+          {products.find((p) => p.id === line.productId)?.unit === 'm²' &&
+            measuredQuantity > 0 && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() =>
+                  onChange({
+                    ...value,
+                    lines: value.lines.map((v, i) =>
+                      i === index
+                        ? {
+                            ...v,
+                            quantity:
+                              Math.round(measuredQuantity * 1000) / 1000,
+                          }
+                        : v,
+                    ),
+                  })
+                }
+              >
+                Use measured area · {measuredQuantity.toFixed(2)} m²
+              </button>
+            )}
           <label className="ops-field">
             Unit price (£)
             <input
@@ -1890,6 +1978,10 @@ function QuoteEditor({
         <Plus size={15} />
         Add quote product
       </button>
+      <p className="floor-helper">
+        Add flooring, underlay and accessories as product lines whenever stock
+        must be purchased or allocated. Extra charges below affect price only.
+      </p>
       <div className="ops-form-grid ops-quote-costs">
         {(
           [
@@ -1901,24 +1993,31 @@ function QuoteEditor({
             'discountPence',
             'costPence',
           ] as const
-        ).map((key) => (
-          <label className="ops-field" key={key}>
-            {key.replace('Pence', '').replace(/^./, (c) => c.toUpperCase())} (£)
-            <input
-              className="input"
-              type="number"
-              step="0.01"
-              min={0}
-              value={value[key] / 100}
-              onChange={(e) =>
-                onChange({
-                  ...value,
-                  [key]: Math.round(Number(e.target.value) * 100),
-                })
-              }
-            />
-          </label>
-        ))}
+        )
+          .filter((key) => key !== 'costPence' || canViewCosts)
+          .map((key) => (
+            <label className="ops-field" key={key}>
+              {key === 'costPence'
+                ? 'Estimated total cost'
+                : key
+                    .replace('Pence', '')
+                    .replace(/^./, (c) => c.toUpperCase())}{' '}
+              (£)
+              <input
+                className="input"
+                type="number"
+                step="0.01"
+                min={0}
+                value={value[key] / 100}
+                onChange={(e) =>
+                  onChange({
+                    ...value,
+                    [key]: Math.round(Number(e.target.value) * 100),
+                  })
+                }
+              />
+            </label>
+          ))}
       </div>
       <div className="ops-quote-total">
         <span>Quote total</span>

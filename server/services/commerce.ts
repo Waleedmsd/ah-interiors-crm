@@ -278,6 +278,20 @@ export async function mutateCommerce(staff: Staff, input: unknown) {
         action.refund.approvalId = approval.id;
       }
     }
+    if (action.type === 'operation') {
+      const order = row.data.operations.cases.find(
+        (v) => v.id === action.action.id,
+      );
+      if (
+        order?.flooringLeadId &&
+        ['line', 'route', 'revise', 'evidence'].includes(action.action.type)
+      )
+        throw new AppError(
+          422,
+          'FLOORING_WORKFLOW',
+          'Use the linked flooring workflow for accepted materials and fitting progress.',
+        );
+    }
     const result = applyCommerce(row.data, action);
     if (action.type === 'create-order' && result.id) {
       const created = result.state.operations.cases.find(
@@ -320,34 +334,30 @@ export async function mutateCommerce(staff: Staff, input: unknown) {
         : action.type === 'operation'
           ? action.action.id
           : workspaceId);
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity,
-        entityId,
-        action: action.type === 'operation' ? action.action.type : action.type,
-        before:
-          entity === 'order'
-            ? row.data.operations.cases.find((v) => v.id === entityId)
-            : entity === 'invoice'
-              ? row.data.invoices.find((v) => v.id === entityId)
-              : null,
-        after:
-          entity === 'order'
-            ? result.state.operations.cases.find((v) => v.id === entityId)
-            : entity === 'invoice'
-              ? result.state.invoices.find((v) => v.id === entityId)
-              : result.state.customers.find((v) => v.id === entityId),
-      });
-    await tx
-      .insert(requests)
-      .values({
-        id: requestKey,
-        userId: staff.id,
-        digest: actionDigest,
-        result: { id: result.id, version },
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity,
+      entityId,
+      action: action.type === 'operation' ? action.action.type : action.type,
+      before:
+        entity === 'order'
+          ? row.data.operations.cases.find((v) => v.id === entityId)
+          : entity === 'invoice'
+            ? row.data.invoices.find((v) => v.id === entityId)
+            : null,
+      after:
+        entity === 'order'
+          ? result.state.operations.cases.find((v) => v.id === entityId)
+          : entity === 'invoice'
+            ? result.state.invoices.find((v) => v.id === entityId)
+            : result.state.customers.find((v) => v.id === entityId),
+    });
+    await tx.insert(requests).values({
+      id: requestKey,
+      userId: staff.id,
+      digest: actionDigest,
+      result: { id: result.id, version },
+    });
     return { data: result.state, version, id: result.id };
   });
 }
@@ -375,19 +385,17 @@ export async function importCommerce(staff: Staff, input: unknown) {
       );
     await projectCommerce(tx, state);
     await tx.insert(workspaces).values({ id: workspaceId, data: state });
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: 'workspace',
-        entityId: workspaceId,
-        action: 'browser-import',
-        after: {
-          customers: state.customers.length,
-          orders: state.operations.cases.length,
-          invoices: state.invoices.length,
-        },
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: 'workspace',
+      entityId: workspaceId,
+      action: 'browser-import',
+      after: {
+        customers: state.customers.length,
+        orders: state.operations.cases.length,
+        invoices: state.invoices.length,
+      },
+    });
     return { data: state, version: 1 };
   });
 }

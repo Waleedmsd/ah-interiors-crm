@@ -1,4 +1,5 @@
 'use client';
+import { FlooringFittingWorkspace } from '@/components/flooring-fulfilment';
 import { NotificationCenter } from '@/components/notification-center';
 import DocumentsPage from '@/app/documents/page';
 import { ShopifyWorkspace } from '@/components/shopify-workspace';
@@ -33,6 +34,11 @@ export function StaffWork() {
             Products
           </Link>
         )}
+        {user?.role === 'Installer' && (
+          <Link className="btn" href="/flooring/fitting">
+            Flooring fitting
+          </Link>
+        )}
         {Object.entries(businessModules)
           .filter(
             ([key]) => user && canUseModule(user.role, key as BusinessModule),
@@ -53,7 +59,9 @@ export function StaffWork() {
           </Link>
         )}
       </div>
-      {path === '/notifications' ? (
+      {path === '/flooring/fitting' && user?.role === 'Installer' ? (
+        <FlooringFittingWorkspace />
+      ) : path === '/notifications' ? (
         <NotificationCenter />
       ) : path === '/documents' ? (
         <DocumentsPage />

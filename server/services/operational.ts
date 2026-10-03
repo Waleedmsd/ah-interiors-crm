@@ -12,6 +12,7 @@ import {
   deliveryJobs,
   assemblyJobs,
   flooringLeads,
+  flooringFulfilments,
   serviceCases,
   centralTasks,
   expenses,
@@ -47,7 +48,7 @@ import {
 } from '../../lib/operations';
 import { flooringRoom, type FlooringRoom } from '../../lib/flooring';
 import { calculateMargin, type VariableCosts } from '../../lib/margin';
-import { marginSettings } from './catalogue';
+import { marginSettings, canSeeCosts } from './catalogue';
 export const operationalTables = {
   deliveries: deliveryJobs,
   'assembly-jobs': assemblyJobs,
@@ -101,6 +102,23 @@ async function notify(
       })
       .onConflictDoNothing();
 }
+function safeRecord<T extends OperationalRecord>(
+  staff: Staff,
+  module: BusinessModule,
+  row: T,
+): T {
+  if (module !== 'flooring' || canSeeCosts(staff)) return row;
+  return {
+    ...row,
+    details: {
+      ...row.details,
+      quote: {
+        ...(row.details.quote as Record<string, unknown>),
+        costPence: 0,
+      },
+    },
+  };
+}
 export async function listRecords(staff: Staff, module: BusinessModule) {
   moduleAccess(staff, module);
   const table = operationalTables[module];
@@ -117,6 +135,7 @@ export async function listRecords(staff: Staff, module: BusinessModule) {
     .orderBy(desc(table.createdAt));
   if (module === 'flooring') {
     const rules = await marginSettings();
+    const accepted = await database().select().from(flooringFulfilments);
     return rows.map((row) => {
       const rooms = (row.details.rooms ?? []) as FlooringRoom[];
       const quote = row.details.quote as {
@@ -140,31 +159,33 @@ export async function listRecords(staff: Staff, module: BusinessModule) {
         quote.removalPence +
         quote.deliveryPence;
       return {
-        ...row,
+        ...safeRecord(staff, module, row),
         rooms: rooms.map((v) => ({ ...v, ...flooringRoom(v) })),
-        profitability:
-          total > 0
-            ? calculateMargin(
-                {
-                  revenuePence: total,
-                  supplierCostPence: quote.costPence,
-                  discountPence: quote.discountPence,
-                  vatBps: rules.vatBps,
-                  vatTreatment: 'Standard',
-                  costs: {
-                    inboundFreightPence: 0,
-                    deliveryPence: 0,
-                    assemblyPence: 0,
-                    paymentFeePence: 0,
-                    financeFeePence: 0,
-                    marketplaceFeePence: 0,
-                    marketingPence: 0,
-                    otherPence: 0,
+        profitability: !canSeeCosts(staff)
+          ? null
+          : (accepted.find((p) => p.leadId === row.id)?.snapshot.profit ??
+            (total > 0
+              ? calculateMargin(
+                  {
+                    revenuePence: total,
+                    supplierCostPence: quote.costPence,
+                    discountPence: quote.discountPence,
+                    vatBps: rules.vatBps,
+                    vatTreatment: 'Standard',
+                    costs: {
+                      inboundFreightPence: 0,
+                      deliveryPence: 0,
+                      assemblyPence: 0,
+                      paymentFeePence: 0,
+                      financeFeePence: 0,
+                      marketplaceFeePence: 0,
+                      marketingPence: 0,
+                      otherPence: 0,
+                    },
                   },
-                },
-                rules.marginThresholds,
-              )
-            : null,
+                  rules.marginThresholds,
+                )
+              : null)),
       };
     });
   }
@@ -252,6 +273,12 @@ export async function saveRecord(
       ].includes(prior.status)
     )
       throw new AppError(422, 'LOCKED', 'This completed record is locked.');
+    if (prior && module === 'flooring' && prior.orderId)
+      throw new AppError(
+        422,
+        'ACCEPTED_QUOTE',
+        'The accepted quote is locked. Use the linked fitting workflow and activity notes.',
+      );
     if (prior && module === 'approvals' && prior.createdBy !== staff.id)
       throw new AppError(
         403,
@@ -291,6 +318,15 @@ export async function saveRecord(
         .select()
         .from(orders)
         .where(eq(orders.id, data.orderId));
+      if (
+        ['deliveries', 'assembly-jobs'].includes(module) &&
+        order.data.flooringLeadId
+      )
+        throw new AppError(
+          422,
+          'FLOORING_WORKFLOW',
+          'Use the flooring fitting job for this order.',
+        );
       if (['deliveries', 'assembly-jobs'].includes(module)) {
         const groupId = String(data.details.groupId ?? '');
         if (!order.data.groups.some((g) => g.id === groupId))
@@ -383,7 +419,26 @@ export async function saveRecord(
         'Link the refund request to an existing invoice and enter the exact positive amount.',
       );
     if (module === 'flooring') {
-      const quote = data.details.quote as { lines: { productId: string }[] };
+      if (!data.assignedUserId)
+        throw new AppError(
+          422,
+          'OWNER_REQUIRED',
+          'Assign a flooring lead owner.',
+        );
+      if (!data.details.nextChaseDate)
+        data.details.nextChaseDate = businessDate(
+          Date.now(),
+          (await businessOptions()).timeZone,
+          2,
+        );
+      const quote = data.details.quote as {
+        lines: { productId: string }[];
+        costPence: number;
+      };
+      if (!canSeeCosts(staff))
+        quote.costPence = Number(
+          (prior?.details.quote as { costPence?: number })?.costPence ?? 0,
+        );
       for (const line of quote.lines)
         if (!(await linkedRecord(tx, 'product', line.productId)))
           throw new AppError(
@@ -447,16 +502,14 @@ export async function saveRecord(
         },
       })
       .returning();
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: module,
-        entityId: id,
-        action: prior ? 'updated' : 'created',
-        before: prior,
-        after: record,
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: module,
+      entityId: id,
+      action: prior ? 'updated' : 'created',
+      before: prior,
+      after: record,
+    });
     if (!prior || prior.assignedUserId !== record.assignedUserId)
       await notify(
         tx,
@@ -480,30 +533,26 @@ export async function saveRecord(
           deliveryId: id,
           address: data.details.address,
         };
-        await tx
-          .insert(assemblyJobs)
-          .values({
-            id: assemblyId,
-            number: 'ASM-' + assemblyId.slice(0, 8).toUpperCase(),
-            title: 'Assembly · ' + record.title,
-            status: 'Awaiting Booking',
-            customerId: record.customerId,
-            orderId: record.orderId,
-            createdBy: staff.id,
-            details,
-          });
-        await tx
-          .insert(auditLogs)
-          .values({
-            userId: staff.id,
-            entity: 'assembly-jobs',
-            entityId: assemblyId,
-            action: 'automatically-created',
-            after: { deliveryId: id, orderId: record.orderId },
-          });
+        await tx.insert(assemblyJobs).values({
+          id: assemblyId,
+          number: 'ASM-' + assemblyId.slice(0, 8).toUpperCase(),
+          title: 'Assembly · ' + record.title,
+          status: 'Awaiting Booking',
+          customerId: record.customerId,
+          orderId: record.orderId,
+          createdBy: staff.id,
+          details,
+        });
+        await tx.insert(auditLogs).values({
+          userId: staff.id,
+          entity: 'assembly-jobs',
+          entityId: assemblyId,
+          action: 'automatically-created',
+          after: { deliveryId: id, orderId: record.orderId },
+        });
       }
     }
-    return record;
+    return safeRecord(staff, module, record);
   });
 }
 
@@ -546,6 +595,22 @@ export async function transitionRecord(
         409,
         'VERSION_CONFLICT',
         'Record changed. Reload first.',
+      );
+    if (
+      module === 'flooring' &&
+      (prior.orderId ||
+        [
+          'Won',
+          'Materials Ordered',
+          'Fitting Booked',
+          'Installation',
+          'Completed',
+        ].includes(data.status))
+    )
+      throw new AppError(
+        422,
+        'FLOORING_WORKFLOW',
+        'Use Accept quote and the materials/fitting actions for this step.',
       );
     if (!transitions[module][prior.status]?.includes(data.status))
       throw new AppError(
@@ -723,6 +788,16 @@ export async function transitionRecord(
         !(details.quote as { lines: unknown[] }).lines.length
       )
         throw new AppError(422, 'QUOTE_REQUIRED', 'Add quote products first.');
+      if (
+        data.status === 'Lost' &&
+        details.lostReason === 'Other' &&
+        !String(details.outcome ?? '').trim()
+      )
+        throw new AppError(
+          422,
+          'LOST_NOTE',
+          'Explain the Other lost reason in the follow-up outcome.',
+        );
       if (data.status === 'Lost' && !details.lostReason)
         throw new AppError(422, 'LOST_REASON', 'Record the lost reason.');
       if (data.status === 'Fitting Booked' && !details.fittingDate)
@@ -821,32 +896,28 @@ export async function transitionRecord(
           .set({ status: 'Delivered', updatedAt: new Date() })
           .where(eq(stockReservations.id, reservation.id));
         const movementId = randomUUID();
-        await tx
-          .insert(stockMovements)
-          .values({
-            id: movementId,
-            type: 'Customer Delivery',
-            productId: reservation.productId,
-            locationId: reservation.locationId,
-            orderId: prior.orderId,
-            quantity: reservation.quantity,
-            reason: String(details.proof),
-            createdBy: staff.id,
-            before,
-            after,
-            requestId: 'delivery:' + id + ':' + reservation.id,
-            requestDigest: digest('delivery:' + id + ':' + reservation.id),
-          });
-        await tx
-          .insert(auditLogs)
-          .values({
-            userId: staff.id,
-            entity: 'stock-movement',
-            entityId: movementId,
-            action: 'Customer Delivery',
-            before,
-            after,
-          });
+        await tx.insert(stockMovements).values({
+          id: movementId,
+          type: 'Customer Delivery',
+          productId: reservation.productId,
+          locationId: reservation.locationId,
+          orderId: prior.orderId,
+          quantity: reservation.quantity,
+          reason: String(details.proof),
+          createdBy: staff.id,
+          before,
+          after,
+          requestId: 'delivery:' + id + ':' + reservation.id,
+          requestDigest: digest('delivery:' + id + ':' + reservation.id),
+        });
+        await tx.insert(auditLogs).values({
+          userId: staff.id,
+          entity: 'stock-movement',
+          entityId: movementId,
+          action: 'Customer Delivery',
+          before,
+          after,
+        });
       }
       await updateOrderProgress(
         tx,
@@ -889,16 +960,14 @@ export async function transitionRecord(
       })
       .where(eq(table.id, id))
       .returning();
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: module,
-        entityId: id,
-        action: 'status-changed',
-        before: { status: prior.status, details: prior.details },
-        after: { status: data.status, details },
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: module,
+      entityId: id,
+      action: 'status-changed',
+      before: { status: prior.status, details: prior.details },
+      after: { status: data.status, details },
+    });
     await notify(
       tx,
       prior.assignedUserId,
@@ -908,7 +977,7 @@ export async function transitionRecord(
       record.title + ' · ' + data.status,
       `${module}:${id}:status:${record.version}`,
     );
-    return record;
+    return safeRecord(staff, module, record);
   });
 }
 
@@ -926,6 +995,25 @@ async function assertSchedule(
       'TIME_SLOT',
       'Use a time window such as 09:00–12:00, AM or PM.',
     );
+  if (assigned) {
+    const fittings = await tx
+      .select()
+      .from(flooringFulfilments)
+      .where(eq(flooringFulfilments.fitterId, assigned));
+    if (
+      fittings.some(
+        (v) =>
+          ['Booked', 'In Progress', 'Issue'].includes(v.status) &&
+          v.scheduledDate === details.scheduledDate &&
+          slotsOverlap(v.timeSlot, slot),
+      )
+    )
+      throw new AppError(
+        409,
+        'SCHEDULE_CONFLICT',
+        'This staff member already has a fitting job in that window.',
+      );
+  }
   for (const table of [deliveryJobs, assemblyJobs]) {
     const records = await tx.select().from(table);
     const clash = records.find(

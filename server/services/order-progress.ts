@@ -111,20 +111,21 @@ export async function updateOrderProgress(
     detail: source,
     at: Date.now(),
   });
-  if (completed(order)) order.tasks = [];
+  if (completed(order)) {
+    order.tasks = [];
+    if (order.flooringLeadId) order.status = 'Complete';
+  }
   await tx
     .update(workspaces)
     .set({ data, version: ledger.version + 1, updatedAt: new Date() })
     .where(eq(workspaces.id, workspaceId));
   await projectCommerce(tx, data);
-  await tx
-    .insert(auditLogs)
-    .values({
-      userId: staffId,
-      entity: 'order',
-      entityId: orderId,
-      action: kind,
-      before,
-      after: order.groups,
-    });
+  await tx.insert(auditLogs).values({
+    userId: staffId,
+    entity: 'order',
+    entityId: orderId,
+    action: kind,
+    before,
+    after: order.groups,
+  });
 }

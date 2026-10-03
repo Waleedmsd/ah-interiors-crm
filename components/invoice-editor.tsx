@@ -39,8 +39,17 @@ export function InvoiceEditor({
       id: line.id,
       description: line.description,
       quantity: String(line.quantity),
+      unit: line.unit,
       price: (line.unitPence / 100).toFixed(2),
-    })) || [{ id: 'line-1', description: '', quantity: '1', price: '' }],
+    })) || [
+      {
+        id: 'line-1',
+        description: '',
+        quantity: '1',
+        price: '',
+        unit: undefined,
+      },
+    ],
   );
   const [discount, setDiscount] = useState(
     ((invoice?.discountPence || 0) / 100).toFixed(2),
@@ -56,6 +65,7 @@ export function InvoiceEditor({
     id: line.id,
     description: line.description,
     quantity: Number(line.quantity),
+    ...(line.unit ? { unit: line.unit } : {}),
     unitPence: parsePounds(line.price),
   }));
   const totals = invoiceTotals({
@@ -200,11 +210,15 @@ export function InvoiceEditor({
                     id={'qty-' + line.id}
                     className="commerce-input"
                     type="number"
-                    min="1"
+                    min={
+                      line.unit === 'm²' || line.unit === 'Metre' ? 0.001 : 1
+                    }
                     max="10000"
-                    step="1"
                     required
                     disabled={locked}
+                    step={
+                      line.unit === 'm²' || line.unit === 'Metre' ? 0.001 : 1
+                    }
                     value={line.quantity}
                     onChange={(event) =>
                       setLines((items) =>
@@ -266,6 +280,7 @@ export function InvoiceEditor({
                       id: 'extra-' + ++sequence.current,
                       description: '',
                       quantity: '1',
+                      unit: undefined,
                       price: '',
                     },
                   ])

@@ -9,6 +9,7 @@ import {
   centralTasks,
   serviceCases,
   flooringLeads,
+  flooringFulfilments,
   supplierOrders,
 } from './db/schema';
 import { businessDate } from '../lib/business-date';
@@ -64,6 +65,11 @@ export async function runJobs() {
       const records = await tx.select().from(table);
       for (const record of records) {
         if (
+          entity === 'flooring' &&
+          (record.orderId || record.status === 'Won')
+        )
+          continue;
+        if (
           ['Completed', 'Cancelled', 'Resolved', 'Closed', 'Lost'].includes(
             record.status,
           )
@@ -98,6 +104,39 @@ export async function runJobs() {
             })
             .onConflictDoNothing();
       }
+    }
+    for (const fitting of await tx.select().from(flooringFulfilments)) {
+      if (
+        !fitting.fitterId ||
+        !['Booked', 'In Progress', 'Issue'].includes(fitting.status) ||
+        !fitting.scheduledDate ||
+        fitting.scheduledDate > today
+      )
+        continue;
+      await tx
+        .insert(notifications)
+        .values({
+          id: randomUUID(),
+          recipientId: fitting.fitterId,
+          type: 'flooring-fitting',
+          entity: 'flooring-fitting',
+          entityId: fitting.leadId,
+          title: 'Fitting due · ' + fitting.snapshot.customerName,
+          message:
+            fitting.scheduledDate +
+            ' · ' +
+            fitting.timeSlot +
+            ' · ' +
+            fitting.snapshot.postcode,
+          dedupeKey:
+            'fitting-due:' +
+            fitting.leadId +
+            ':' +
+            fitting.scheduledDate +
+            ':' +
+            fitting.fitterId,
+        })
+        .onConflictDoNothing();
     }
     for (const record of await tx.select().from(supplierOrders)) {
       const flags = supplierFlags(

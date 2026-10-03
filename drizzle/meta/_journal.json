@@ -71,6 +71,13 @@
       "when": 1790984553255,
       "tag": "0009_dry_meteorite",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791016721893,
+      "tag": "0010_wooden_thor_girl",
+      "breakpoints": true
     }
   ]
 }
