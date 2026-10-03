@@ -129,6 +129,8 @@ export const operationalDesign = {
       'Overdue',
       'Awaiting Supplier',
       'Replacement overdue',
+      'Customer update due',
+      'Supplier chase due',
     ],
     dateKey: 'nextChaseDate',
     dateLabel: 'Next chase',

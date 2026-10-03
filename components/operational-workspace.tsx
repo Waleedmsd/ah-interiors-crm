@@ -8,6 +8,7 @@ import {
   type SubmitEvent,
 } from 'react';
 import Link from 'next/link';
+import { AfterSalesWorkflow } from '@/components/after-sales-workflow';
 import { FlooringJourney } from '@/components/flooring-fulfilment';
 import { businessDate } from '@/lib/business-date';
 import { useSearchParams } from 'next/navigation';
@@ -85,6 +86,11 @@ type Lookups = {
   staff: Lookup[];
 };
 type RecordRow = {
+  afterSalesAttention?: {
+    customerNextDate: string;
+    supplierNextDate: string;
+    replacementDate: string;
+  };
   id: string;
   number: string;
   title: string;
@@ -246,9 +252,18 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
     return () => clearTimeout(timer);
   }, [notice]);
   const due = (row: RecordRow) =>
-    design.dateKey
-      ? text(row.details[design.dateKey])
-      : row.createdAt.slice(0, 10);
+    module === 'service-cases'
+      ? ([
+          row.afterSalesAttention?.customerNextDate,
+          row.afterSalesAttention?.supplierNextDate,
+          row.afterSalesAttention?.replacementDate,
+          text(row.details.nextChaseDate),
+        ]
+          .filter((v): v is string => !!v)
+          .sort()[0] ?? '')
+      : design.dateKey
+        ? text(row.details[design.dateKey])
+        : row.createdAt.slice(0, 10);
   const overdue = (row: RecordRow) =>
     !!due(row) &&
     due(row) < day() &&
@@ -276,6 +291,18 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
     (target === 'Due today' && due(row) === day() && !closed(row.status)) ||
     (target === 'Due tomorrow' && due(row) === day(1) && !closed(row.status)) ||
     (target === 'Overdue' && overdue(row)) ||
+    (target === 'Customer update due' &&
+      !!row.afterSalesAttention?.customerNextDate &&
+      row.afterSalesAttention.customerNextDate <= day() &&
+      !closed(row.status)) ||
+    (target === 'Supplier chase due' &&
+      !!row.afterSalesAttention?.supplierNextDate &&
+      row.afterSalesAttention.supplierNextDate <= day() &&
+      !closed(row.status)) ||
+    (target === 'Replacement overdue' &&
+      !!row.afterSalesAttention?.replacementDate &&
+      row.afterSalesAttention.replacementDate < day() &&
+      !closed(row.status)) ||
     (target === 'Replacement overdue' &&
       !!text(row.details.expectedReplacementDate) &&
       text(row.details.expectedReplacementDate) < day() &&
@@ -599,6 +626,9 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
                 ? 'Select fulfilment group…'
                 : 'Choose a sales order first'}
             </option>
+            {text(value).startsWith('case:') && (
+              <option value={text(value)}>Case replacement shipment</option>
+            )}
             {options?.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.name}
@@ -703,6 +733,7 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
     const next = operationalTransitions[module][row.status] ?? [];
     return next.filter((status) => {
       if (module === 'flooring' && status === 'Won') return false;
+      if (module === 'service-cases' && status === 'Resolved') return false;
       if (
         ['approvals', 'expenses'].includes(module) &&
         ['Approved', 'Rejected'].includes(status)
@@ -1407,6 +1438,19 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
                       <strong>{owner(selected)}</strong>
                     </div>
                   </div>
+                  {module === 'service-cases' && (
+                    <AfterSalesWorkflow
+                      caseId={selected.id}
+                      version={selected.version}
+                      onChange={async () => {
+                        await load();
+                        const fresh = await apiRequest<RecordRow[]>(url);
+                        setSelected(
+                          fresh.find((r) => r.id === selected.id) ?? null,
+                        );
+                      }}
+                    />
+                  )}
                   {module === 'flooring' && (
                     <FlooringJourney
                       key={selected.id}

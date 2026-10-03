@@ -76,7 +76,12 @@ async function balance(tx: Tx, productId: string, locationId: string) {
   const [row] = await tx
     .select()
     .from(stockBalances)
-    .where(eq(stockBalances.id, id))
+    .where(
+      and(
+        eq(stockBalances.productId, productId),
+        eq(stockBalances.locationId, locationId),
+      ),
+    )
     .for('update');
   return row;
 }
@@ -490,6 +495,15 @@ export async function moveStock(staff: Staff, input: unknown) {
           422,
           'RESERVATION',
           'Movement must match the active reservation and order.',
+        );
+      if (
+        data.type === 'Customer Delivery' &&
+        reservation.groupId?.startsWith('case:')
+      )
+        throw new AppError(
+          422,
+          'CASE_DELIVERY',
+          'Use the replacement delivery job to dispatch case stock with proof.',
         );
       if (data.type === 'Customer Delivery') {
         const jobs = await tx

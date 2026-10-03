@@ -523,3 +523,48 @@ export const flooringFulfilments = pgTable(
     index('flooring_fitter_schedule_idx').on(t.fitterId, t.scheduledDate),
   ],
 );
+
+export const caseWorkflows = pgTable('case_workflows', {
+  caseId: text('case_id')
+    .primaryKey()
+    .references(() => serviceCases.id),
+  productId: text('product_id').references(() => products.id),
+  quantity: integer('quantity').notNull().default(1),
+  purchaseOrderId: text('purchase_order_id').references(
+    () => purchaseOrders.id,
+  ),
+  deliveryId: text('delivery_id')
+    .unique()
+    .references(() => deliveryJobs.id),
+  approvalId: text('approval_id').references(() => approvals.id),
+  refundId: text('refund_id').unique(),
+  refundPence: integer('refund_pence').notNull().default(0),
+  customerNextDate: text('customer_next_date').notNull().default(''),
+  supplierNextDate: text('supplier_next_date').notNull().default(''),
+  contacts: jsonb('contacts')
+    .$type<
+      {
+        id: string;
+        audience: 'Customer' | 'Supplier';
+        note: string;
+        at: string;
+        by: string;
+      }[]
+    >()
+    .notNull()
+    .default([]),
+  returns: jsonb('returns')
+    .$type<
+      {
+        reservationId: string;
+        quantity: number;
+        disposition: string;
+        movementId: string;
+        at: string;
+      }[]
+    >()
+    .notNull()
+    .default([]),
+  outcome: text('outcome').notNull().default(''),
+  customerConfirmed: boolean('customer_confirmed').notNull().default(false),
+});

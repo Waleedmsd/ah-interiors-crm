@@ -78,6 +78,13 @@
       "when": 1791016721893,
       "tag": "0010_wooden_thor_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791024559521,
+      "tag": "0011_fat_tyrannus",
+      "breakpoints": true
     }
   ]
 }

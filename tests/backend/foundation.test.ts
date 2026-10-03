@@ -2532,16 +2532,14 @@ test('furniture preparation, shipment splitting and partial completion preserve 
       type: 'Physical',
       active: true,
     });
-  await database()
-    .insert(stockBalances)
-    .values({
-      id: randomUUID(),
-      productId,
-      locationId,
-      physical: 2,
-      reserved: 0,
-      display: 0,
-    });
+  await database().insert(stockBalances).values({
+    id: randomUUID(),
+    productId,
+    locationId,
+    physical: 2,
+    reserved: 0,
+    display: 0,
+  });
   async function mutate(action: CommerceAction) {
     const [w] = await database().select().from(workspaces);
     const r = await request('commerce', 'POST', {
@@ -2822,4 +2820,521 @@ test('furniture preparation, shipment splitting and partial completion preserve 
     1,
     'retries after partial delivery do not duplicate incoming supply',
   );
+});
+
+test('after-sales connects replacement purchasing, partial returns, delivery proof, refunds and resolution', async () => {
+  const {
+    caseWorkflows,
+    notifications,
+    serviceCases,
+    approvals,
+    stockMovements,
+  } = await import('../../server/db/schema');
+  const [base] = await database().select().from(products);
+  const productId = randomUUID(),
+    locationId = randomUUID();
+  await database()
+    .insert(products)
+    .values({
+      ...base,
+      id: productId,
+      sku: 'CASE-' + productId,
+      status: 'Active',
+      details: { ...base.details, stockUnit: 'Each' },
+    });
+  await database()
+    .insert(stockLocations)
+    .values({
+      id: locationId,
+      name: 'After-sales test ' + locationId,
+      type: 'Physical',
+      active: true,
+    });
+  await database()
+    .insert(stockBalances)
+    .values({ id: randomUUID(), productId, locationId, physical: 3 });
+  async function mutate(action: CommerceAction) {
+    const [w] = await database().select().from(workspaces);
+    const r = await request('commerce', 'POST', {
+      requestId: randomUUID(),
+      version: w.version,
+      action,
+    });
+    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+    return r.json() as Promise<any>;
+  }
+  const [w] = await database().select().from(workspaces);
+  const created = await mutate({
+    type: 'create-order',
+    input: {
+      requestId: randomUUID(),
+      customerId: w.data.customers[0].id,
+      channel: 'Shopify',
+      sourceRef: 'AFTER-SALES-TEST',
+      lines: [
+        {
+          productId,
+          name: 'Oak chair',
+          supplier: 'Test',
+          article: '',
+          quantity: 3,
+          unitPence: 12000,
+          options: '',
+          route: 'ProBuild',
+        },
+      ],
+      deliveryPence: 0,
+      note: '',
+      now: Date.now(),
+    },
+  });
+  const order = created.data.operations.cases.find(
+    (o: any) => o.id === created.id,
+  );
+  await mutate({ type: 'issue-invoice', id: order.invoice, now: Date.now() });
+  await mutate({
+    type: 'pay-invoice',
+    id: order.invoice,
+    payment: {
+      id: randomUUID(),
+      amountPence: 36000,
+      reference: 'CASE-PAID',
+      method: 'Cash',
+      at: Date.now(),
+    },
+  });
+  const move = async (data: Record<string, unknown>) => {
+    const r = await request('inventory/movements', 'POST', {
+      requestId: randomUUID(),
+      productId,
+      locationId,
+      reason: 'Synthetic after-sales stock',
+      ...data,
+    });
+    assert.equal(r.status, 201, JSON.stringify(await r.clone().json()));
+  };
+  await move({
+    type: 'Reservation',
+    orderId: order.id,
+    groupId: order.groups[0].id,
+    quantity: 3,
+  });
+  const [originalReservation] = await database()
+    .select()
+    .from(stockReservations)
+    .where(eq(stockReservations.orderId, order.id));
+  await move({
+    type: 'Customer Delivery',
+    orderId: order.id,
+    reservationId: originalReservation.id,
+    quantity: 3,
+  });
+  await move({ type: 'Adjustment', quantity: 1 });
+  let r = await request('operations/service-cases', 'POST', {
+    title: 'Damaged chair claim',
+    orderId: order.id,
+    customerId: order.customerId,
+    assignedUserId: managerId,
+    details: {
+      ...blankDetails('service-cases'),
+      caseType: 'Damage',
+      priority: 'High',
+      reportedDate: '2026-10-03',
+      description: 'Two chairs damaged in transit',
+    },
+  });
+  assert.equal(r.status, 201, JSON.stringify(await r.clone().json()));
+  const c: any = await r.json();
+  const path = 'service-cases/' + c.id + '/workflow';
+  assert.equal(
+    (await request(path, 'GET', undefined, warehouseCookie)).status,
+    403,
+  );
+  let p: any = await (await request(path)).json();
+  const act = async (value: Record<string, unknown>) => {
+    const r = await request(path, 'POST', { version: p.version, ...value });
+    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+    p = await r.json();
+  };
+  await act({ action: 'configure', productId, quantity: 2 });
+  await act({
+    action: 'contact',
+    audience: 'Customer',
+    note: 'Customer agreed to a replacement and a call tomorrow.',
+    nextDate: '2020-01-01',
+  });
+  await act({
+    action: 'contact',
+    audience: 'Supplier',
+    note: 'Supplier accepted the claim.',
+    nextDate: '2020-01-02',
+  });
+  const { runJobs } = await import('../../server/jobs');
+  await runJobs();
+  await runJobs();
+  const notices = await database()
+    .select()
+    .from(notifications)
+    .where(eq(notifications.entityId, c.id));
+  assert.equal(notices.filter((n) => n.type === 'customer-update').length, 1);
+  assert.equal(notices.filter((n) => n.type === 'supplier-chase').length, 1);
+  const stale = p.version;
+  await act({ action: 'prepare', unitCostPence: 0 });
+  assert.equal(p.allocated, 1);
+  const [caseReservation] = await database()
+    .select()
+    .from(stockReservations)
+    .where(eq(stockReservations.groupId, 'case:' + c.id));
+  assert.equal(
+    (
+      await request('inventory/movements', 'POST', {
+        requestId: randomUUID(),
+        type: 'Customer Delivery',
+        productId,
+        locationId,
+        orderId: order.id,
+        reservationId: caseReservation.id,
+        quantity: 1,
+        reason: 'Bypass replacement proof',
+      })
+    ).status,
+    422,
+  );
+  assert.ok(p.purchase);
+  const poId = p.purchase.id;
+  await act({ action: 'prepare', unitCostPence: 0 });
+  assert.equal(p.purchase.id, poId);
+  assert.equal(
+    (
+      await request(path, 'POST', {
+        version: stale,
+        action: 'prepare',
+        unitCostPence: 0,
+      })
+    ).status,
+    409,
+  );
+  const [poLine] = await database()
+    .select()
+    .from(purchaseItems)
+    .where(eq(purchaseItems.purchaseOrderId, poId));
+  assert.equal(poLine.quantity, 1);
+  let [po] = await database()
+    .select()
+    .from(purchaseOrders)
+    .where(eq(purchaseOrders.id, poId));
+  assert.equal(
+    po.orderId,
+    null,
+    'replacement supply must not count as original sales demand',
+  );
+  assert.equal(
+    (
+      await request(path, 'POST', {
+        version: p.version,
+        action: 'resolve',
+        outcome: 'Advice / no further action',
+        note: 'Shortcut',
+        customerConfirmed: true,
+      })
+    ).status,
+    422,
+  );
+  for (const status of [
+    'Ready to Send',
+    'Sent',
+    'Awaiting Confirmation',
+    'Confirmed',
+  ]) {
+    r = await request('purchase-orders/' + poId, 'PATCH', {
+      version: po.version,
+      status,
+    });
+    assert.equal(r.status, 200);
+    po = (await r.json()) as any;
+  }
+  await move({ type: 'Goods Received', purchaseOrderId: poId, quantity: 1 });
+  await act({ action: 'prepare', unitCostPence: 0 });
+  assert.equal(p.allocated, 2);
+  await act({ action: 'delivery' });
+  assert.ok(p.delivery);
+  const [beforeDelivery] = await database().select().from(workspaces);
+  const groups = beforeDelivery.data.operations.cases.find(
+    (o) => o.id === order.id,
+  )!.groups;
+  let [job] = await database()
+    .select()
+    .from(deliveryJobs)
+    .where(eq(deliveryJobs.id, p.delivery.id));
+  r = await request('operations/deliveries/' + job.id, 'PUT', {
+    version: job.version,
+    title: job.title,
+    customerId: job.customerId,
+    orderId: job.orderId,
+    assignedUserId: managerId,
+    details: {
+      ...job.details,
+      scheduledDate: '2027-04-15',
+      timeSlot: '09:00–12:00',
+      customerConfirmed: true,
+    },
+  });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  job = (await r.json()) as any;
+  for (const status of ['Booked', 'Confirmed', 'Out for Delivery']) {
+    r = await request('operations/deliveries/' + job.id, 'PATCH', {
+      version: job.version,
+      status,
+    });
+    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+    job = (await r.json()) as any;
+  }
+  assert.equal(
+    (
+      await request('operations/deliveries/' + job.id, 'PATCH', {
+        version: job.version,
+        status: 'Delivered',
+      })
+    ).status,
+    422,
+  );
+  r = await request('operations/deliveries/' + job.id, 'PATCH', {
+    version: job.version,
+    status: 'Delivered',
+    evidence: 'Customer signed for both replacement chairs',
+  });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  const [afterDelivery] = await database().select().from(workspaces);
+  assert.deepEqual(
+    afterDelivery.data.operations.cases.find((o) => o.id === order.id)!.groups,
+    groups,
+    'replacement does not modify original group completion',
+  );
+  p = await (await request(path)).json();
+  await act({
+    action: 'return',
+    reservationId: originalReservation.id,
+    quantity: 1,
+    locationId,
+    disposition: 'Write off',
+    reason: 'Broken frame inspected at goods in',
+  });
+  const [balance] = await database()
+    .select()
+    .from(stockBalances)
+    .where(eq(stockBalances.productId, productId));
+  assert.equal(balance.physical, 0);
+  assert.equal(balance.reserved, 0);
+  const [source] = await database()
+    .select()
+    .from(stockReservations)
+    .where(eq(stockReservations.id, originalReservation.id));
+  assert.equal(source.quantity, 2);
+  assert.equal(source.status, 'Delivered');
+  const movements = await database()
+    .select()
+    .from(stockMovements)
+    .where(eq(stockMovements.productId, productId));
+  assert.equal(movements.filter((m) => m.type === 'Return').length, 1);
+  assert.equal(movements.filter((m) => m.type === 'Damage').length, 1);
+  await act({
+    action: 'request-refund',
+    amountPence: 1000,
+    reason: 'Agreed goodwill for the delay',
+  });
+  assert.equal(p.approval.status, 'Requested');
+  assert.equal(
+    (
+      await request('operations/approvals/' + p.approval.id, 'PATCH', {
+        version: 1,
+        status: 'Approved',
+      })
+    ).status,
+    422,
+    'requester cannot approve own refund',
+  );
+  const approverId = randomUUID();
+  await database()
+    .insert(users)
+    .values({
+      id: approverId,
+      name: 'After-sales approver',
+      email: 'case-approver@test.invalid',
+      role: 'Management',
+      department: 'Management',
+      passwordHash: await hashPassword(password),
+    });
+  const login = await request(
+    'auth/login',
+    'POST',
+    { email: 'case-approver@test.invalid', password },
+    '',
+  );
+  const cookie = login.headers.get('set-cookie')!.split(';')[0];
+  r = await request(
+    'operations/approvals/' + p.approval.id,
+    'PATCH',
+    { version: 1, status: 'Approved' },
+    cookie,
+  );
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  assert.equal(
+    (
+      await request(path, 'POST', {
+        version: p.version,
+        action: 'resolve',
+        outcome: 'Combined remedy',
+        note: 'Complete',
+        customerConfirmed: true,
+      })
+    ).status,
+    422,
+    'approval alone is not payment evidence',
+  );
+  const refundId = randomUUID();
+  await mutate({
+    type: 'refund-invoice',
+    id: order.invoice,
+    approvalId: p.approval.id,
+    refund: {
+      id: refundId,
+      amountPence: 1000,
+      reference: 'CASE-GOODWILL',
+      method: 'Bank transfer',
+      at: Date.now(),
+    },
+  });
+  await act({ action: 'link-refund', refundId });
+  assert.equal(p.refund.amountPence, 1000);
+  await act({
+    action: 'resolve',
+    outcome: 'Combined remedy',
+    note: 'Replacements delivered; damaged chair received and written off; goodwill refunded.',
+    customerConfirmed: true,
+  });
+  assert.equal(p.status, 'Resolved');
+  r = await request('operations/service-cases/' + c.id, 'PATCH', {
+    version: p.version,
+    status: 'Closed',
+  });
+  assert.equal(r.status, 200);
+  p = await (await request(path)).json();
+  await act({
+    action: 'reopen',
+    reason: 'Customer asked for a further update',
+  });
+  assert.equal(p.status, 'Investigating');
+  const [workflow] = await database()
+    .select()
+    .from(caseWorkflows)
+    .where(eq(caseWorkflows.caseId, c.id));
+  assert.equal(workflow.refundId, refundId);
+  assert.equal(workflow.contacts.length, 2);
+  const audit = await database()
+    .select()
+    .from(auditLogs)
+    .where(eq(auditLogs.entityId, c.id));
+  assert.ok(audit.some((a) => a.action === 'after-sales:resolve'));
+});
+
+test('after-sales releases stopped replacements and permits customer-agreed resolution after refund rejection', async () => {
+  const { serviceCases, caseWorkflows } =
+    await import('../../server/db/schema');
+  const [ledger] = await database().select().from(workspaces);
+  const order = ledger.data.operations.cases.find(
+    (o) => o.sourceRef === 'AFTER-SALES-TEST',
+  )!;
+  const productId = order.lines[0].productId!;
+  const [balance] = await database()
+    .select()
+    .from(stockBalances)
+    .where(eq(stockBalances.productId, productId));
+  await database()
+    .update(stockBalances)
+    .set({ physical: 1 })
+    .where(eq(stockBalances.id, balance.id));
+  const create = async (type: string) => {
+    const r = await request('operations/service-cases', 'POST', {
+      title: 'Alternative remedy ' + type,
+      customerId: order.customerId,
+      orderId: order.id,
+      assignedUserId: managerId,
+      details: {
+        ...blankDetails('service-cases'),
+        caseType: type,
+        priority: 'Normal',
+        reportedDate: '2026-10-03',
+        description: 'Customer discussing alternative remedy',
+      },
+    });
+    assert.equal(r.status, 201);
+    return r.json() as Promise<any>;
+  };
+  let c = await create('Damage'),
+    path = 'service-cases/' + c.id + '/workflow',
+    p: any = await (await request(path)).json();
+  const act = async (value: Record<string, unknown>) => {
+    const r = await request(path, 'POST', { version: p.version, ...value });
+    assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+    p = await r.json();
+  };
+  await act({ action: 'configure', productId, quantity: 1 });
+  await act({ action: 'prepare', unitCostPence: 0 });
+  await act({ action: 'delivery' });
+  const jobId = p.delivery.id;
+  await act({
+    action: 'stop-replacement',
+    reason:
+      'Customer chose to retain the original after repair. Courier not dispatched.',
+  });
+  assert.equal(p.allocated, 0);
+  assert.equal(p.delivery.status, 'Cancelled');
+  assert.equal(p.replacementRequired, false);
+  const [released] = await database()
+    .select()
+    .from(stockBalances)
+    .where(eq(stockBalances.id, balance.id));
+  assert.equal(released.reserved, 0);
+  assert.equal(released.physical, 1);
+  await act({
+    action: 'resolve',
+    outcome: 'Advice / no further action',
+    note: 'Customer confirmed no replacement needed.',
+    customerConfirmed: true,
+  });
+  assert.equal(p.status, 'Resolved');
+  c = await create('Refund');
+  path = 'service-cases/' + c.id + '/workflow';
+  p = await (await request(path)).json();
+  await act({
+    action: 'request-refund',
+    amountPence: 500,
+    reason: 'Customer requested goodwill review',
+  });
+  const login = await request(
+    'auth/login',
+    'POST',
+    { email: 'case-approver@test.invalid', password },
+    '',
+  );
+  const cookie = login.headers.get('set-cookie')!.split(';')[0];
+  let r = await request(
+    'operations/approvals/' + p.approval.id,
+    'PATCH',
+    {
+      version: 1,
+      status: 'Rejected',
+      evidence: 'Customer and manager agreed no monetary remedy was required.',
+    },
+    cookie,
+  );
+  assert.equal(r.status, 200);
+  await act({
+    action: 'resolve',
+    outcome: 'Advice / no further action',
+    note: 'Customer accepted the explanation and confirmed resolution without a refund.',
+    customerConfirmed: true,
+  });
+  assert.equal(p.status, 'Resolved');
+  assert.equal(p.refund, null);
 });

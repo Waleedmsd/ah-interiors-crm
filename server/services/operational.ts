@@ -10,6 +10,7 @@ import { and, eq, desc, sql } from 'drizzle-orm';
 import { database } from '../db';
 import {
   deliveryJobs,
+  caseWorkflows,
   assemblyJobs,
   flooringLeads,
   flooringFulfilments,
@@ -133,6 +134,25 @@ export async function listRecords(staff: Staff, module: BusinessModule) {
         : undefined,
     )
     .orderBy(desc(table.createdAt));
+  if (module === 'service-cases') {
+    const workflows = await database().select().from(caseWorkflows);
+    const purchases = await database().select().from(purchaseOrders);
+    return rows.map((row) => {
+      const w = workflows.find((w) => w.caseId === row.id),
+        po = purchases.find((p) => p.id === w?.purchaseOrderId);
+      return {
+        ...row,
+        afterSalesAttention: {
+          customerNextDate: w?.customerNextDate ?? '',
+          supplierNextDate: w?.supplierNextDate ?? '',
+          replacementDate:
+            po && !['Received', 'Cancelled'].includes(po.status)
+              ? (po.expectedDate ?? '')
+              : '',
+        },
+      };
+    });
+  }
   if (module === 'flooring') {
     const rules = await marginSettings();
     const accepted = await database().select().from(flooringFulfilments);
@@ -234,6 +254,8 @@ export async function saveRecord(
   moduleAccess(staff, module, true);
   const { version, ...data } = recordInput(module).parse(input);
   const table = operationalTables[module];
+  if (module === 'service-cases' && !data.assignedUserId)
+    data.assignedUserId = staff.id;
   const id = idValue ?? randomUUID();
   return database().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(10204)`);
@@ -273,6 +295,27 @@ export async function saveRecord(
       ].includes(prior.status)
     )
       throw new AppError(422, 'LOCKED', 'This completed record is locked.');
+    if (prior && module === 'service-cases') {
+      const [workflow] = await tx
+        .select()
+        .from(caseWorkflows)
+        .where(eq(caseWorkflows.caseId, prior.id));
+      if (prior.status === 'Resolved')
+        throw new AppError(422, 'LOCKED', 'Reopen the case before editing.');
+      if (
+        workflow?.productId &&
+        (data.productId !== prior.productId ||
+          data.supplierId !== prior.supplierId ||
+          data.orderId !== prior.orderId ||
+          data.details.replacementRequired !==
+            prior.details.replacementRequired)
+      )
+        throw new AppError(
+          422,
+          'CASE_LINKS',
+          'Remedy product, supplier, order and replacement requirement are controlled by the after-sales workflow.',
+        );
+    }
     if (prior && module === 'flooring' && prior.orderId)
       throw new AppError(
         422,
@@ -318,8 +361,26 @@ export async function saveRecord(
         .select()
         .from(orders)
         .where(eq(orders.id, data.orderId));
+      const [caseDelivery] =
+        module === 'deliveries' && prior
+          ? await tx
+              .select()
+              .from(caseWorkflows)
+              .where(eq(caseWorkflows.deliveryId, prior.id))
+          : [];
+      if (
+        caseDelivery &&
+        (data.details.groupId !== 'case:' + caseDelivery.caseId ||
+          data.details.assemblyRequired)
+      )
+        throw new AppError(
+          422,
+          'CASE_DELIVERY',
+          'Replacement shipment links are fixed. Create a separate assembly job through the case team if needed.',
+        );
       if (
         ['deliveries', 'assembly-jobs'].includes(module) &&
+        !caseDelivery &&
         order.data.flooringLeadId
       )
         throw new AppError(
@@ -327,7 +388,7 @@ export async function saveRecord(
           'FLOORING_WORKFLOW',
           'Use the flooring fitting job for this order.',
         );
-      if (['deliveries', 'assembly-jobs'].includes(module)) {
+      if (['deliveries', 'assembly-jobs'].includes(module) && !caseDelivery) {
         const groupId = String(data.details.groupId ?? '');
         if (!order.data.groups.some((g) => g.id === groupId))
           throw new AppError(
@@ -680,6 +741,19 @@ export async function transitionRecord(
         'INSTALLER_SCOPE',
         'Installers may update assigned assembly progress only.',
       );
+    const [replacement] =
+      module === 'deliveries'
+        ? await tx
+            .select()
+            .from(caseWorkflows)
+            .where(eq(caseWorkflows.deliveryId, id))
+        : [];
+    const replacementReady = (
+      reservations: { productId: string; quantity: number }[],
+    ) =>
+      !!replacement &&
+      reservations.every((r) => r.productId === replacement.productId) &&
+      reservations.reduce((n, r) => n + r.quantity, 0) === replacement.quantity;
     const details = { ...prior.details };
     if (data.evidence) {
       if (module === 'deliveries' && data.status === 'Delivered')
@@ -710,8 +784,10 @@ export async function transitionRecord(
           );
         if (
           !order ||
-          !isPaid(order.data) ||
-          !deliveryReady(order.data, reservations, String(details.groupId))
+          (replacement
+            ? !replacementReady(reservations)
+            : !isPaid(order.data) ||
+              !deliveryReady(order.data, reservations, String(details.groupId)))
         )
           throw new AppError(
             422,
@@ -827,6 +903,21 @@ export async function transitionRecord(
         throw new AppError(422, 'FITTING_DATE', 'Set fitting date first.');
     }
     if (module === 'service-cases') {
+      const [workflow] = await tx
+        .select()
+        .from(caseWorkflows)
+        .where(eq(caseWorkflows.caseId, id));
+      if (
+        data.status === 'Resolved' &&
+        (workflow ||
+          details.replacementRequired ||
+          ['Refund', 'Return'].includes(String(details.caseType)))
+      )
+        throw new AppError(
+          422,
+          'CASE_WORKFLOW',
+          'Use the after-sales resolution action to verify replacement, return and refund evidence.',
+        );
       if (
         ['Replacement Ordered', 'Replacement In Transit'].includes(
           data.status,
@@ -875,8 +966,10 @@ export async function transitionRecord(
         .for('update');
       if (
         !order ||
-        !isPaid(order.data) ||
-        !deliveryReady(order.data, reservations, String(details.groupId))
+        (replacement
+          ? !replacementReady(reservations)
+          : !isPaid(order.data) ||
+            !deliveryReady(order.data, reservations, String(details.groupId)))
       )
         throw new AppError(
           422,
@@ -942,15 +1035,16 @@ export async function transitionRecord(
           after,
         });
       }
-      await updateOrderProgress(
-        tx,
-        staff.id,
-        prior.orderId!,
-        'delivery',
-        prior.number + ' · ' + String(details.proof),
-        undefined,
-        String(details.groupId),
-      );
+      if (!replacement)
+        await updateOrderProgress(
+          tx,
+          staff.id,
+          prior.orderId!,
+          'delivery',
+          prior.number + ' · ' + String(details.proof),
+          undefined,
+          String(details.groupId),
+        );
     }
     if (module === 'assembly-jobs' && data.status === 'Completed') {
       const [order] = await tx

@@ -59,6 +59,7 @@ export const businessModules: Record<BusinessModule, ModuleDefinition> = {
       'Failed',
       'Rescheduled',
       'Completed',
+      'Cancelled',
     ],
     readRoles: [...operations, 'Warehouse', 'Delivery'],
     writeRoles: operations,
@@ -192,7 +193,7 @@ export const businessModules: Record<BusinessModule, ModuleDefinition> = {
       'Resolved',
       'Closed',
     ],
-    readRoles: operations,
+    readRoles: [...operations, 'Accounts'],
     writeRoles: operations,
     customer: true,
     fields: [

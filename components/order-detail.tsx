@@ -1,4 +1,5 @@
 'use client';
+import { OrderAfterSales } from '@/components/after-sales-workflow';
 import { FurnitureFulfilment } from '@/components/furniture-fulfilment';
 import { OrderCostSheet } from '@/components/order-cost-sheet';
 import { RecordActivity } from '@/components/record-activity';
@@ -34,6 +35,7 @@ const tabs = [
   ['products', 'Products & checks'],
   ['fulfilment', 'Fulfilment'],
   ['payment', 'Payment'],
+  ['after-sales', 'After-sales'],
   ['messages', 'Messages'],
   ['documents', 'Documents'],
   ['timeline', 'Activity'],
@@ -253,6 +255,9 @@ export function OrderDetail({ id }: { id: string }) {
                   <FurnitureFulfilment orderId={order.id} />
                 )}
               </>
+            </TabsContent>
+            <TabsContent value="after-sales">
+              <OrderAfterSales orderId={id} />
             </TabsContent>
             <TabsContent value="payment">
               <PaymentPanel order={order} />

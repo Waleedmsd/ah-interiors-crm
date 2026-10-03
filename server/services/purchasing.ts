@@ -5,6 +5,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { database } from '../db';
 import {
   purchaseOrders,
+  caseWorkflows,
   purchaseItems,
   supplierOrders,
   suppliers,
@@ -151,6 +152,36 @@ export async function savePurchase(
         'LOCKED',
         'Only the current draft can be edited.',
       );
+    const [caseLink] = prior
+      ? await tx
+          .select()
+          .from(caseWorkflows)
+          .where(eq(caseWorkflows.purchaseOrderId, id))
+      : [];
+    if (caseLink) {
+      const original = await tx
+        .select()
+        .from(purchaseItems)
+        .where(
+          and(
+            eq(purchaseItems.purchaseOrderId, id),
+            eq(purchaseItems.active, true),
+          ),
+        );
+      if (
+        data.orderId ||
+        data.customerId !== prior.customerId ||
+        data.supplierId !== prior.supplierId ||
+        items.length !== 1 ||
+        items[0].productId !== caseLink.productId ||
+        items[0].quantity !== original.reduce((n, i) => n + i.quantity, 0)
+      )
+        throw new AppError(
+          422,
+          'CASE_PURCHASE',
+          'Replacement purchase links and quantities are fixed by the case. Review cost, date and supplier reference here.',
+        );
+    }
     for (const item of items) {
       const [product] = await tx
         .select()
@@ -221,26 +252,22 @@ export async function savePurchase(
         .select()
         .from(products)
         .where(eq(products.id, item.productId));
-      await tx
-        .insert(purchaseItems)
-        .values({
-          ...item,
-          id: randomUUID(),
-          purchaseOrderId: id,
-          supplierSku: product.supplierSku,
-          customerId: item.customerId || null,
-        });
-    }
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: 'purchase-order',
-        entityId: id,
-        action: prior ? 'draft-updated' : 'created',
-        before: prior,
-        after: { ...record, items },
+      await tx.insert(purchaseItems).values({
+        ...item,
+        id: randomUUID(),
+        purchaseOrderId: id,
+        supplierSku: product.supplierSku,
+        customerId: item.customerId || null,
       });
+    }
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: 'purchase-order',
+      entityId: id,
+      action: prior ? 'draft-updated' : 'created',
+      before: prior,
+      after: { ...record, items },
+    });
     return record;
   });
 }
@@ -292,16 +319,14 @@ export async function transitionPurchase(
       })
       .where(eq(purchaseOrders.id, id))
       .returning();
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: 'purchase-order',
-        entityId: id,
-        action: 'status-changed',
-        before: { status: prior.status },
-        after: { status: data.status },
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: 'purchase-order',
+      entityId: id,
+      action: 'status-changed',
+      before: { status: prior.status },
+      after: { status: data.status },
+    });
     return record;
   });
 }
@@ -401,16 +426,14 @@ export async function saveSupplierOrder(
         },
       })
       .returning();
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: 'supplier-order',
-        entityId: id,
-        action: prior ? 'updated' : 'created',
-        before: prior,
-        after: record,
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: 'supplier-order',
+      entityId: id,
+      action: prior ? 'updated' : 'created',
+      before: prior,
+      after: record,
+    });
     return record;
   });
 }
@@ -480,16 +503,14 @@ export async function transitionSupplierOrder(
         record.number,
         prior.supplierId,
       );
-    await tx
-      .insert(auditLogs)
-      .values({
-        userId: staff.id,
-        entity: 'supplier-order',
-        entityId: id,
-        action: 'status-changed',
-        before: { status: prior.status },
-        after: { status: data.status },
-      });
+    await tx.insert(auditLogs).values({
+      userId: staff.id,
+      entity: 'supplier-order',
+      entityId: id,
+      action: 'status-changed',
+      before: { status: prior.status },
+      after: { status: data.status },
+    });
     return record;
   });
 }

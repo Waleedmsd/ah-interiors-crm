@@ -8,6 +8,8 @@ import {
   workspaces,
   centralTasks,
   serviceCases,
+  caseWorkflows,
+  purchaseOrders,
   flooringLeads,
   flooringFulfilments,
   supplierOrders,
@@ -101,6 +103,44 @@ export async function runJobs() {
               message: record.title,
               dedupeKey:
                 person.id + ':' + entity + ':' + record.id + ':due:' + due,
+            })
+            .onConflictDoNothing();
+      }
+    }
+    const cases = await tx.select().from(serviceCases);
+    const casePurchases = await tx.select().from(purchaseOrders);
+    for (const workflow of await tx.select().from(caseWorkflows)) {
+      const c = cases.find((c) => c.id === workflow.caseId);
+      if (!c || ['Resolved', 'Closed'].includes(c.status)) continue;
+      const purchase = casePurchases.find(
+        (p) => p.id === workflow.purchaseOrderId,
+      );
+      const dates = [
+        ['customer-update', workflow.customerNextDate],
+        ['supplier-chase', workflow.supplierNextDate],
+        [
+          'replacement-overdue',
+          purchase && !['Received', 'Cancelled'].includes(purchase.status)
+            ? purchase.expectedDate
+            : '',
+        ],
+      ] as const;
+      for (const [kind, due] of dates) {
+        if (!due || due > today) continue;
+        for (const person of c.assignedUserId
+          ? [{ id: c.assignedUserId }]
+          : recipients)
+          await tx
+            .insert(notifications)
+            .values({
+              id: randomUUID(),
+              recipientId: person.id,
+              type: kind,
+              entity: 'service-cases',
+              entityId: c.id,
+              title: c.number + ' · ' + kind.replaceAll('-', ' ') + ' due',
+              message: c.title,
+              dedupeKey: person.id + ':case:' + c.id + ':' + kind + ':' + due,
             })
             .onConflictDoNothing();
       }
