@@ -8,6 +8,10 @@ import {
   type SubmitEvent,
 } from 'react';
 import Link from 'next/link';
+import { businessDate } from '@/lib/business-date';
+import { useSearchParams } from 'next/navigation';
+import { RecordActivity } from '@/components/record-activity';
+import { recordEntity } from '@/lib/record-links';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -66,6 +70,7 @@ type OrderLookup = Lookup & {
   groups?: Lookup[];
 };
 type Lookups = {
+  timeZone?: string;
   customers: Lookup[];
   orders: OrderLookup[];
   suppliers: Lookup[];
@@ -101,15 +106,6 @@ type Form = {
   productId: string;
   assignedUserId: string;
   details: Record<string, unknown>;
-};
-const day = (offset = 0) => {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('-');
 };
 const dateLabel = (value: string) =>
   value
@@ -159,6 +155,8 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
   const { user } = useAuth();
   const [rows, setRows] = useState<RecordRow[]>([]),
     [lookups, setLookups] = useState<Lookups>(emptyLookups);
+  const day = (offset = 0) =>
+    businessDate(Date.now(), lookups.timeZone, offset);
   const [view, setView] = useState('All'),
     [search, setSearch] = useState(''),
     [sort, setSort] = useState('Updated');
@@ -175,6 +173,33 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
     [notice, setNotice] = useState(''),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false);
+  const params = useSearchParams();
+  const incoming = params.get('record'),
+    createFor = params.get('create') === '1' ? params.get('order') : null;
+  const handledLink = useRef('');
+  const [relatedChoices, setRelatedChoices] = useState<
+    { id: string; entity: string; name: string }[]
+  >([]);
+  useEffect(() => {
+    if (['tasks', 'approvals'].includes(module))
+      apiRequest<typeof relatedChoices>('/api/records/choices')
+        .then(setRelatedChoices)
+        .catch((e) => setError(e.message));
+  }, [module]);
+  useEffect(() => {
+    if (loading) return;
+    const key = incoming ?? createFor ?? '';
+    if (!key || handledLink.current === key) return;
+    handledLink.current = key;
+    if (incoming) {
+      const record = rows.find((v) => v.id === incoming);
+      if (record) openRecord(record);
+      else setError('This record is unavailable or you do not have access.');
+    } else if (createFor && writable) {
+      create();
+      changeOrder(createFor);
+    }
+  }, [incoming, createFor, loading, rows, lookups]);
   const saving = useRef(false);
   const writable = !!user && canUseModule(user.role, module, true),
     url = '/api/operations/' + module;
@@ -277,9 +302,10 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
   ].includes(module);
   const scheduleKey = module === 'flooring' ? 'measureDate' : design.dateKey;
   const days = useMemo(() => {
-    const monday = -((new Date().getDay() + 6) % 7) + week * 7;
+    const monday =
+      -((new Date(day() + 'T12:00:00').getDay() + 6) % 7) + week * 7;
     return Array.from({ length: 7 }, (_, i) => day(monday + i));
-  }, [week]);
+  }, [week, lookups.timeZone]);
   const stats = [
     {
       label:
@@ -361,6 +387,9 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
       assignedUserId: user && canUseModule(user.role, module) ? user.id : '',
       details: {
         ...blankDetails(module),
+        ...(module === 'service-cases'
+          ? { reportedDate: day(), priority: 'Normal' }
+          : {}),
         ...(date && scheduleKey ? { [scheduleKey]: date } : {}),
       },
     });
@@ -404,11 +433,16 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
             customerId: order?.customerId ?? current.customerId,
             title:
               current.title ||
-              `${module === 'assembly-jobs' ? 'Assembly' : 'Delivery'} · ${order?.name ?? id}`,
+              `${module === 'assembly-jobs' ? 'Assembly' : module === 'service-cases' ? 'Case' : 'Delivery'} · ${order?.name ?? id}`,
             details: {
               ...current.details,
-              groupId: order?.groups?.length === 1 ? order.groups[0].id : '',
-              ...(order?.address ? { address: order.address } : {}),
+              ...(['deliveries', 'assembly-jobs'].includes(module)
+                ? {
+                    groupId:
+                      order?.groups?.length === 1 ? order.groups[0].id : '',
+                    ...(order?.address ? { address: order.address } : {}),
+                  }
+                : {}),
               ...(module === 'deliveries'
                 ? { postcode: order?.postcode ?? '', phone: order?.phone ?? '' }
                 : {}),
@@ -438,7 +472,12 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
           aria-label={label}
           className="input"
           required={required}
-          disabled={!!selected && ['customerId', 'orderId'].includes(key)}
+          disabled={
+            !!selected &&
+            (key === 'customerId' ||
+              (key === 'orderId' &&
+                !(module === 'service-cases' && !selected.orderId)))
+          }
           value={form?.[key] ?? ''}
           onChange={(e) =>
             key === 'orderId'
@@ -458,8 +497,35 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
     );
   }
   function fieldControl(field: BusinessField) {
+    if (field.key === 'linkedId')
+      return (
+        <label className="ops-field" key={field.key}>
+          <span>Related record</span>
+          <select
+            className="input"
+            required={field.required || !!form?.details.linkedType}
+            value={text(form?.details.linkedId)}
+            onChange={(e) => updateField('linkedId', e.target.value)}
+          >
+            <option value="">Choose a record…</option>
+            {relatedChoices
+              .filter(
+                (v) =>
+                  v.entity === recordEntity(text(form?.details.linkedType)),
+              )
+              .map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      );
     const value = form?.details[field.key],
-      change = (next: unknown) => updateField(field.key, next);
+      change = (next: unknown) => {
+        updateField(field.key, next);
+        if (field.key === 'linkedType') updateField('linkedId', '');
+      };
     if (field.type === 'rooms')
       return (
         <RoomEditor
@@ -535,6 +601,7 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
           </select>
         ) : field.type === 'textarea' ? (
           <textarea
+            aria-label={field.label}
             className="input"
             rows={3}
             required={field.required}
@@ -1200,12 +1267,12 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
                         }
                       />
                     </label>
-                    {definition.order &&
+                    {(definition.order || definition.optionalOrder) &&
                       relationship(
                         'orderId',
                         'Sales order',
                         lookups.orders,
-                        true,
+                        !!definition.order,
                       )}
                     {definition.customer &&
                       relationship(
@@ -1417,6 +1484,7 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
                     Supporting documents
                   </div>
                   <RecordAttachments entity={module} entityId={selected.id} />
+                  <RecordActivity entity={module} entityId={selected.id} />
                 </div>
                 <footer className="ops-drawer-footer">
                   <span>{selected.number}</span>

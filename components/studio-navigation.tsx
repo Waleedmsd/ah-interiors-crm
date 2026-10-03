@@ -27,21 +27,42 @@ import { useAuth } from '@/components/auth-context';
 import { useWorkspace } from '@/components/workspace-provider';
 import { useUIPreferences } from '@/components/ui-preferences-provider';
 import { moduleForPath } from '@/lib/ui-preferences';
-import {businessModules,canUseModule,type BusinessModule} from '@/lib/business-modules';
+import {
+  businessModules,
+  canUseModule,
+  type BusinessModule,
+} from '@/lib/business-modules';
 import { hasPermission } from '@/server/permissions';
 const groups = [
-  { label: 'Workspace', paths: ['/', '/orders', '/customers', '/products', '/suppliers'] },
+  {
+    label: 'Workspace',
+    paths: [
+      '/',
+      '/orders',
+      '/customers',
+      '/products',
+      '/suppliers',
+      '/integrations/shopify',
+    ],
+  },
   {
     label: 'Operations',
     paths: [
       '/reviews',
-      '/purchasing', '/inventory', '/deliveries', '/assembly-jobs', '/flooring', '/service-cases', '/tasks', '/approvals',
+      '/purchasing',
+      '/inventory',
+      '/deliveries',
+      '/assembly-jobs',
+      '/flooring',
+      '/service-cases',
+      '/tasks',
+      '/approvals',
       '/assembly',
       '/communications',
       '/documents',
     ],
   },
-  { label: 'Finance', paths: ['/invoices','/expenses'] },
+  { label: 'Finance', paths: ['/invoices', '/expenses'] },
   { label: 'Insights', paths: ['/reports'] },
 ];
 export function activeRoute(pathname: string, href: string) {
@@ -69,7 +90,7 @@ export function StudioHeader({
   onNotifications: () => void;
   notifications: number;
 }) {
-  const {user:staff}=useAuth();
+  const { user: staff } = useAuth();
   const current =
     title ||
     navigation.find((item) => activeRoute(pathname, item.href))?.label ||
@@ -118,10 +139,16 @@ export function StudioHeader({
           className="liquid-account"
           aria-label="Staff account settings"
         >
-          <span>{(staff?.name??'AH').split(' ').map(v=>v[0]).slice(0,2).join('')}</span>
+          <span>
+            {(staff?.name ?? 'AH')
+              .split(' ')
+              .map((v) => v[0])
+              .slice(0, 2)
+              .join('')}
+          </span>
           <div>
-            <strong>{staff?.name ?? "Amir"}</strong>
-            <small>{staff?.role ?? "Workspace admin"}</small>
+            <strong>{staff?.name ?? 'Amir'}</strong>
+            <small>{staff?.role ?? 'Workspace admin'}</small>
           </div>
         </Link>
       </div>
@@ -138,7 +165,7 @@ export function StudioSidebar({
   onNavigate?: () => void;
 }) {
   const { cases, setAssistantOpen } = useWorkspace();
-  const {user:staff}=useAuth();
+  const { user: staff } = useAuth();
   const { preferences, update, ready } = useUIPreferences();
   const reduced = !ready || preferences.motion === 'reduced';
   const [narrow, setNarrow] = useState(false);
@@ -157,7 +184,19 @@ export function StudioSidebar({
   ).length;
   const items = [
     ...navigation.filter(
-      (item) => item.href !== '/accounts' && item.href !== '/invoices' && (!!staff && (hasPermission(staff,'commerce.read') || item.href === '/reports' && hasPermission(staff,'reports.read'))) && (!(item.href.slice(1) in businessModules) || !!staff && canUseModule(staff.role,item.href.slice(1) as BusinessModule)) && (item.href !== '/reports' || !!staff && hasPermission(staff,'reports.read')),
+      (item) =>
+        (item.href !== '/integrations/shopify' ||
+          (!!staff && ['Management', 'Team Lead'].includes(staff.role))) &&
+        item.href !== '/accounts' &&
+        item.href !== '/invoices' &&
+        !!staff &&
+        (hasPermission(staff, 'commerce.read') ||
+          (item.href === '/reports' && hasPermission(staff, 'reports.read'))) &&
+        (!(item.href.slice(1) in businessModules) ||
+          (!!staff &&
+            canUseModule(staff.role, item.href.slice(1) as BusinessModule))) &&
+        (item.href !== '/reports' ||
+          (!!staff && hasPermission(staff, 'reports.read'))),
     ),
     { href: '/invoices', label: 'Invoices', icon: FileText, index: 'F' },
   ];
@@ -182,7 +221,10 @@ export function StudioSidebar({
           <strong>AH Interiors</strong>
           <small>Operations workspace</small>
         </div>
-        <span className="workspace-online nav-copy" title="Shared team workspace" />
+        <span
+          className="workspace-online nav-copy"
+          title="Shared team workspace"
+        />
       </div>
       <TooltipProvider delay={180}>
         <LayoutGroup id={mobile ? 'mobile-navigation' : 'workspace-navigation'}>

@@ -301,10 +301,14 @@ export function ReportsWorkspace() {
               {data.profit && (
                 <>
                   <div className="report-section-heading">
-                    <h2>Profitability</h2>
+                    <h2>
+                      Profitability{' '}
+                      {data.profit.provisional ? '· provisional' : ''}
+                    </h2>
                     <span>
                       {data.profit.costCoverage} orders with verified supplier
-                      costs
+                      costs · {data.profit.reviewedCostCoverage ?? 0} with
+                      reviewed variable costs
                     </span>
                   </div>
                   <div className="ops-stats">

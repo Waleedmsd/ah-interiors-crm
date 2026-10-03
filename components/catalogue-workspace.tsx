@@ -1,9 +1,11 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { apiRequest } from '@/lib/api-client';
 import { StatusPill } from '@/components/page-ui';
 import { useAuth } from '@/components/auth-context';
 import { hasPermission } from '@/server/permissions';
+import { stockUnits } from '@/lib/stock-units';
 import { emptyCosts } from '@/lib/margin';
 type Row = {
   id: string;
@@ -66,6 +68,12 @@ const supplierFields: Field[] = [
   },
 ];
 const productFields: Field[] = [
+  {
+    path: 'details.stockUnit',
+    label: 'Stock / purchase unit',
+    type: 'select',
+    options: stockUnits.map((v) => ({ value: v, label: v })),
+  },
   { path: 'name', label: 'Product name' },
   { path: 'sku', label: 'AH SKU' },
   { path: 'supplierId', label: 'Supplier', type: 'select' },
@@ -167,6 +175,7 @@ function blank(module: 'products' | 'suppliers') {
         supplierCostPence: 0,
         sellingPricePence: 0,
         details: {
+          stockUnit: 'Each',
           brand: '',
           subcategory: '',
           article: '',
@@ -236,8 +245,33 @@ export function CatalogueWorkspace({
   const editable = !!user && hasPermission(user, 'catalogue.write'),
     isProduct = module === 'products',
     Icon = isProduct ? Package : Truck;
+  const financial =
+    !!user && ['Management', 'Team Lead', 'Accounts'].includes(user.role);
   const label = isProduct ? 'product' : 'supplier',
-    fields = isProduct ? productFields : supplierFields;
+    fields = isProduct
+      ? productFields.filter(
+          (field) =>
+            (user?.role !== 'Warehouse' ||
+              [
+                'name',
+                'sku',
+                'supplierId',
+                'supplierSku',
+                'category',
+                'status',
+                'details.packQuantity',
+                'details.packDimensions',
+                'details.stockUnit',
+              ].includes(field.path)) &&
+            (financial ||
+              (![
+                'supplierCostPence',
+                'details.vatTreatment',
+                'details.discountPence',
+              ].includes(field.path) &&
+                !field.path.startsWith('details.costs.'))),
+        )
+      : supplierFields;
   const load = useCallback(async () => {
     setRows(await apiRequest<Row[]>('/api/' + module));
     if (isProduct && editable)
@@ -306,11 +340,15 @@ export function CatalogueWorkspace({
           caption: 'Across your product range',
         },
         {
-          name: 'Margin review',
-          value: rows.filter(
-            (r) => r.profitability?.tier === 'Approval Required',
+          name: financial ? 'Margin review' : 'Published online',
+          value: rows.filter((r) =>
+            financial
+              ? r.profitability?.tier === 'Approval Required'
+              : r.details.websiteStatus === 'Published',
           ).length,
-          caption: 'Products below your threshold',
+          caption: financial
+            ? 'Products below your threshold'
+            : 'Products marked as published',
         },
       ]
     : [
@@ -371,10 +409,26 @@ export function CatalogueWorkspace({
     return 'Product identity';
   }
   const sections = [...new Set(fields.map(section))];
+  const params = useSearchParams();
+  const incoming = params.get('record');
+  const handledLink = useRef('');
+  useEffect(() => {
+    if (!loading && incoming && handledLink.current !== incoming) {
+      handledLink.current = incoming;
+      const row = rows.find((v) => v.id === incoming);
+      if (row) void open(row);
+      else setError('This record is unavailable or you do not have access.');
+    }
+  }, [incoming, loading, rows]);
   async function open(row: Row) {
     setError('');
     setSelected(row);
     const base = blank(module);
+    if (isProduct && !financial) {
+      delete (base as Record<string, unknown>).supplierCostPence;
+      for (const key of ['vatTreatment', 'discountPence', 'costs'])
+        delete (base.details as Record<string, unknown>)[key];
+    }
     setForm(
       Object.fromEntries(
         Object.keys(base).map((key) => [
@@ -386,7 +440,7 @@ export function CatalogueWorkspace({
     );
     try {
       setHistory(
-        isProduct
+        isProduct && financial && editable
           ? await apiRequest('/api/products/' + row.id + '/history')
           : [],
       );
@@ -416,7 +470,7 @@ export function CatalogueWorkspace({
               : 'Stronger supplier relationships. Clearer purchasing decisions.'}
           </p>
         </div>
-        {editable && (
+        {editable && (!isProduct || financial) && (
           <button className="btn btn-primary ops-primary" onClick={create}>
             <Plus size={16} />
             Add {label}
@@ -470,7 +524,9 @@ export function CatalogueWorkspace({
             'All',
             'Active',
             'Inactive',
-            ...(isProduct ? ['Discontinued', 'Approval Required'] : []),
+            ...(isProduct
+              ? ['Discontinued', ...(financial ? ['Approval Required'] : [])]
+              : []),
           ].map((tab) => (
             <button
               key={tab}
@@ -509,8 +565,12 @@ export function CatalogueWorkspace({
                 {isProduct ? (
                   <>
                     <th>Selling price</th>
-                    <th>Contribution</th>
-                    <th>Margin</th>
+                    {financial && (
+                      <>
+                        <th>Contribution</th>
+                        <th>Margin</th>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
@@ -532,7 +592,7 @@ export function CatalogueWorkspace({
                         <Icon size={22} strokeWidth={1.4} />
                       </span>
                       <div>
-                        {editable ? (
+                        {true ? (
                           <button onClick={() => void open(row)}>
                             <strong>{row.name}</strong>
                           </button>
@@ -562,33 +622,39 @@ export function CatalogueWorkspace({
                           ? '£' + (row.sellingPricePence / 100).toFixed(2)
                           : '—'}
                       </td>
-                      <td>
-                        {row.profitability
-                          ? '£' +
-                            (
-                              row.profitability.contributionProfitPence / 100
-                            ).toFixed(2)
-                          : '—'}
-                      </td>
-                      <td>
-                        {row.profitability ? (
-                          <span
-                            className={
-                              'catalogue-margin ' +
-                              (row.profitability.tier === 'Approval Required'
-                                ? 'needs-review'
-                                : '')
-                            }
-                          >
-                            {(
-                              row.profitability.contributionMarginBps / 100
-                            ).toFixed(1)}
-                            %<small>{row.profitability.tier}</small>
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
+                      {financial && (
+                        <>
+                          <td>
+                            {row.profitability
+                              ? '£' +
+                                (
+                                  row.profitability.contributionProfitPence /
+                                  100
+                                ).toFixed(2)
+                              : '—'}
+                          </td>
+                          <td>
+                            {row.profitability ? (
+                              <span
+                                className={
+                                  'catalogue-margin ' +
+                                  (row.profitability.tier ===
+                                  'Approval Required'
+                                    ? 'needs-review'
+                                    : '')
+                                }
+                              >
+                                {(
+                                  row.profitability.contributionMarginBps / 100
+                                ).toFixed(1)}
+                                %<small>{row.profitability.tier}</small>
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </>
+                      )}
                     </>
                   ) : (
                     <>
@@ -640,7 +706,7 @@ export function CatalogueWorkspace({
                     label +
                     ' to keep your team’s information together.'}
               </p>
-              {editable && (
+              {editable && (!isProduct || financial) && (
                 <button
                   className="btn btn-primary ops-primary"
                   onClick={create}
@@ -664,7 +730,7 @@ export function CatalogueWorkspace({
       </section>
       {form && (
         <BusinessFormPanel
-          title={(selected ? 'Edit ' : 'Add ') + label}
+          title={(selected ? (editable ? 'Edit ' : 'View ') : 'Add ') + label}
           description={
             selected?.name ??
             (isProduct
@@ -712,102 +778,109 @@ export function CatalogueWorkspace({
                 {error}
               </p>
             )}
-            {sections.map((name, index) => (
-              <section className="ops-form-section" key={name}>
-                <div className="ops-section-label">
-                  <span>{String(index + 1).padStart(2, '0')}</span>
-                  <h3>{name}</h3>
-                </div>
-                <div className="ops-form-grid">
-                  {fields
-                    .filter((f) => section(f) === name)
-                    .map((field) => {
-                      const value = valueAt(form, field.path);
-                      return (
-                        <label
-                          className={
-                            'ops-field ' +
-                            (field.type === 'boolean' ? 'ops-toggle' : '')
-                          }
-                          key={field.path}
-                        >
-                          <span>
-                            {field.label.replace(/^./, (c) => c.toUpperCase())}
-                          </span>
-                          {field.type === 'boolean' ? (
-                            <input
-                              type="checkbox"
-                              checked={!!value}
-                              onChange={(e) =>
-                                change(field.path, e.target.checked)
-                              }
-                            />
-                          ) : field.type === 'select' ? (
-                            <select
-                              className="input"
-                              required={field.path === 'supplierId'}
-                              value={displayValue(value)}
-                              onChange={(e) =>
-                                change(field.path, e.target.value)
-                              }
-                            >
-                              <option value="">Select…</option>
-                              {(field.path === 'supplierId'
-                                ? suppliers.map((v) => ({
-                                    value: v.id,
-                                    label: v.name,
-                                  }))
-                                : (field.options ?? [])
-                              ).map((v) => (
-                                <option key={v.value} value={v.value}>
-                                  {v.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              className="input"
-                              type={
-                                field.type === 'money' ||
-                                field.type === 'number'
-                                  ? 'number'
-                                  : field.path === 'details.email'
-                                    ? 'email'
-                                    : 'text'
-                              }
-                              required={['name', 'sku', 'code'].includes(
-                                field.path,
+            <fieldset
+              disabled={!editable}
+              style={{ border: 0, padding: 0, minWidth: 0 }}
+            >
+              {sections.map((name, index) => (
+                <section className="ops-form-section" key={name}>
+                  <div className="ops-section-label">
+                    <span>{String(index + 1).padStart(2, '0')}</span>
+                    <h3>{name}</h3>
+                  </div>
+                  <div className="ops-form-grid">
+                    {fields
+                      .filter((f) => section(f) === name)
+                      .map((field) => {
+                        const value = valueAt(form, field.path);
+                        return (
+                          <label
+                            className={
+                              'ops-field ' +
+                              (field.type === 'boolean' ? 'ops-toggle' : '')
+                            }
+                            key={field.path}
+                          >
+                            <span>
+                              {field.label.replace(/^./, (c) =>
+                                c.toUpperCase(),
                               )}
-                              step={field.type === 'money' ? '0.01' : 'any'}
-                              min={
-                                field.type === 'money' ||
-                                field.type === 'number'
-                                  ? 0
-                                  : undefined
-                              }
-                              value={
-                                field.type === 'money'
-                                  ? Number(value ?? 0) / 100
-                                  : displayValue(value)
-                              }
-                              onChange={(e) =>
-                                change(
+                            </span>
+                            {field.type === 'boolean' ? (
+                              <input
+                                type="checkbox"
+                                checked={!!value}
+                                onChange={(e) =>
+                                  change(field.path, e.target.checked)
+                                }
+                              />
+                            ) : field.type === 'select' ? (
+                              <select
+                                className="input"
+                                required={field.path === 'supplierId'}
+                                value={displayValue(value)}
+                                onChange={(e) =>
+                                  change(field.path, e.target.value)
+                                }
+                              >
+                                <option value="">Select…</option>
+                                {(field.path === 'supplierId'
+                                  ? suppliers.map((v) => ({
+                                      value: v.id,
+                                      label: v.name,
+                                    }))
+                                  : (field.options ?? [])
+                                ).map((v) => (
+                                  <option key={v.value} value={v.value}>
+                                    {v.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                className="input"
+                                type={
+                                  field.type === 'money' ||
+                                  field.type === 'number'
+                                    ? 'number'
+                                    : field.path === 'details.email'
+                                      ? 'email'
+                                      : 'text'
+                                }
+                                required={['name', 'sku', 'code'].includes(
                                   field.path,
+                                )}
+                                step={field.type === 'money' ? '0.01' : 'any'}
+                                min={
+                                  field.type === 'money' ||
+                                  field.type === 'number'
+                                    ? 0
+                                    : undefined
+                                }
+                                value={
                                   field.type === 'money'
-                                    ? Math.round(Number(e.target.value) * 100)
-                                    : field.type === 'number'
-                                      ? Number(e.target.value)
-                                      : e.target.value,
-                                )
-                              }
-                            />
-                          )}
-                        </label>
-                      );
-                    })}
-                </div>
-              </section>
-            ))}
+                                    ? Number(value ?? 0) / 100
+                                    : displayValue(value)
+                                }
+                                onChange={(e) =>
+                                  change(
+                                    field.path,
+                                    field.type === 'money'
+                                      ? Math.round(Number(e.target.value) * 100)
+                                      : field.type === 'number'
+                                        ? Number(e.target.value)
+                                        : e.target.value,
+                                  )
+                                }
+                              />
+                            )}
+                          </label>
+                        );
+                      })}
+                  </div>
+                </section>
+              ))}
+            </fieldset>
             {!!history.length && (
               <section className="ops-form-section">
                 <h3>Price history</h3>
@@ -835,10 +908,12 @@ export function CatalogueWorkspace({
               >
                 Cancel
               </button>
-              <button className="btn btn-primary ops-primary" disabled={busy}>
-                <Check size={15} />
-                {busy ? 'Saving…' : 'Save ' + label}
-              </button>
+              {editable && (
+                <button className="btn btn-primary ops-primary" disabled={busy}>
+                  <Check size={15} />
+                  {busy ? 'Saving…' : 'Save ' + label}
+                </button>
+              )}
             </div>
           </form>
         </BusinessFormPanel>

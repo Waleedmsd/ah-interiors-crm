@@ -1,0 +1,16 @@
+query CrmOrders($after: String, $query: String!) {
+  orders(first: 10, after: $after, sortKey: UPDATED_AT, query: $query) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id name updatedAt createdAt email phone cancelledAt displayFinancialStatus displayFulfillmentStatus taxesIncluded test
+      currentTotalPriceSet { shopMoney { amount currencyCode } }
+      currentSubtotalPriceSet { shopMoney { amount currencyCode } }
+      currentShippingPriceSet { shopMoney { amount currencyCode } }
+      shippingAddress { name address1 address2 city zip phone countryCodeV2 }
+      lineItems(first: 100) {
+        pageInfo { hasNextPage }
+        nodes { id name sku quantity currentQuantity variant { id } discountedTotalSet { shopMoney { amount currencyCode } } }
+      }
+    }
+  }
+}

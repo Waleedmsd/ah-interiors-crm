@@ -281,7 +281,9 @@ export function LiveBusinessSnapshot() {
         <div className="snapshot-profit">
           <span>
             <TrendingUp size={16} />
-            Contribution profit{' '}
+            {data.profit.provisional
+              ? 'Provisional contribution'
+              : 'Contribution profit'}{' '}
             <strong>
               {data.profit.costCoverage
                 ? pounds(data.profit.contributionPence)
@@ -290,7 +292,8 @@ export function LiveBusinessSnapshot() {
           </span>
           <span>
             {data.profit.costCoverage} of {data.profit.orderCount} orders have
-            verified costs
+            verified product costs · {data.profit.reviewedCostCoverage ?? 0}{' '}
+            with reviewed variable costs
           </span>
           <Link href="/reports" className="ops-text-link">
             Profit details

@@ -2,7 +2,7 @@ import { demoOrders, money, type DemoOrder } from '@/lib/demo-data';
 
 export const PREVIEW_NOW = Date.parse('2026-09-05T10:00:00Z');
 export const DAY = 24 * 60 * 60 * 1000;
-export type Channel = 'Magento' | 'Shopify' | 'Amazon' | 'eBay' | 'WhatsApp';
+export type Channel = string;
 export type Route =
   | 'ProBuild'
   | 'Flat Pack Pro'

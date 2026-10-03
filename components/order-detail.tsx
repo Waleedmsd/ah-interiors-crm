@@ -1,4 +1,6 @@
 'use client';
+import { OrderCostSheet } from '@/components/order-cost-sheet';
+import { RecordActivity } from '@/components/record-activity';
 import { RecordAttachments } from '@/components/record-attachments';
 import { useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -51,12 +53,9 @@ export function OrderDetail({ id }: { id: string }) {
     return (
       <div className="page">
         <div className="ops-empty">
-          <h2>
-            {ready ? 'Order not found on this browser' : 'Loading local order…'}
-          </h2>
+          <h2>{ready ? 'Order not found' : 'Loading order…'}</h2>
           <p>
-            Locally created orders are saved on the browser where you create
-            them.
+            This order may have been removed or your access may have changed.
           </p>
           <Link className="btn" href="/orders">
             Back to orders
@@ -82,6 +81,18 @@ export function OrderDetail({ id }: { id: string }) {
             <Link className="btn" href={'/invoices/' + order.invoice}>
               View invoice
             </Link>
+            <Link
+              className="btn"
+              href={'/service-cases?create=1&order=' + encodeURIComponent(id)}
+            >
+              Open service case
+            </Link>
+            <Link
+              className="btn"
+              href={'/deliveries?create=1&order=' + encodeURIComponent(id)}
+            >
+              Book delivery
+            </Link>
           </>
         }
       />
@@ -102,12 +113,11 @@ export function OrderDetail({ id }: { id: string }) {
           {status === 'Approved' ? 'Approved · not executed' : status}
         </StatusPill>
         <StatusPill tone={isPaid(order) ? 'green' : 'gold'}>
-          {isPaid(order) ? 'Paid · sample record' : 'Payment hold'}
+          {isPaid(order) ? 'Paid' : 'Payment hold'}
         </StatusPill>
         <span className="preview-label">{order.channel}</span>
         <span>Original ref: {order.sourceRef}</span>
         <span className="ops-spacer" />
-        <span>Owner: Amir · admin</span>
       </div>
       <div className="ops-stage-strip">
         {[
@@ -231,15 +241,17 @@ export function OrderDetail({ id }: { id: string }) {
             </TabsContent>
             <TabsContent value="payment">
               <PaymentPanel order={order} />
+              <OrderCostSheet orderId={id} />
             </TabsContent>
             <TabsContent value="messages">
               <OrderMessages order={order} />
             </TabsContent>
             <TabsContent value="documents">
-              <OrderDocuments order={order} /><RecordAttachments entity="order" entityId={id}/>
+              <RecordAttachments entity="order" entityId={id} />
             </TabsContent>
             <TabsContent value="timeline">
               <OrderHistory order={order} />
+              <RecordActivity entity="order" entityId={id} />
             </TabsContent>
           </Tabs>
           <Panel

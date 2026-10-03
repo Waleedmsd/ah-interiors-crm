@@ -1,7 +1,7 @@
 'use client';
 import { useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
-import {apiRequest} from '@/lib/api-client';
+import { apiRequest } from '@/lib/api-client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -43,10 +43,52 @@ export function NewOrderForm() {
   const router = useRouter();
   const params = useSearchParams();
   const { mutate, ready, notify } = useWorkspace();
-  const [catalogue,setCatalogue]=useState<{id:string;name:string;sku:string;supplierId:string;supplierCostPence:number;sellingPricePence:number;details:{article?:string}}[]>([]);
-  const [supplierNames,setSupplierNames]=useState<{id:string;name:string}[]>([]);
-  useEffect(()=>{if(process.env.NEXT_PUBLIC_CRM_MODE==='preview')return;Promise.all([apiRequest<typeof catalogue>('/api/products'),apiRequest<typeof supplierNames>('/api/suppliers')]).then(([p,s])=>{setCatalogue(p);setSupplierNames(s);}).catch(()=>{});},[]);
+  const [catalogue, setCatalogue] = useState<
+    {
+      id: string;
+      name: string;
+      sku: string;
+      supplierId: string;
+      supplierCostPence: number;
+      sellingPricePence: number;
+      details: { article?: string };
+    }[]
+  >([]);
+  const [supplierNames, setSupplierNames] = useState<
+    { id: string; name: string }[]
+  >([]);
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_CRM_MODE === 'preview') return;
+    Promise.all([
+      apiRequest<typeof catalogue>('/api/products'),
+      apiRequest<typeof supplierNames>('/api/suppliers'),
+    ])
+      .then(([p, s]) => {
+        setCatalogue(p);
+        setSupplierNames(s);
+      })
+      .catch(() => {});
+  }, []);
   const [customerId, setCustomerId] = useState(params.get('customer') || '');
+  const [salesChannels, setSalesChannels] = useState<string[]>([
+    'WhatsApp',
+    'Shopify',
+    'Magento',
+    'Amazon',
+    'eBay',
+  ]);
+  useEffect(() => {
+    apiRequest<{ salesChannels: string[] }>('/api/business-options')
+      .then((v) => {
+        setSalesChannels(v.salesChannels);
+        setChannel((current) =>
+          v.salesChannels.includes(current)
+            ? current
+            : (v.salesChannels[0] ?? ''),
+        );
+      })
+      .catch(() => {});
+  }, []);
   const [channel, setChannel] = useState<Channel>('WhatsApp');
   const [sourceRef, setSourceRef] = useState('');
   const [lines, setLines] = useState<FormLine[]>([blankLine(1)]);
@@ -99,9 +141,7 @@ export function NewOrderForm() {
       setBusy(false);
       return;
     }
-    notify(
-      'Order and invoice draft saved. Record payment before processing.',
-    );
+    notify('Order and invoice draft saved. Record payment before processing.');
     router.push('/orders/' + result.id);
   }
   return (
@@ -136,11 +176,9 @@ export function NewOrderForm() {
                     setChannel(event.target.value as Channel)
                   }
                 >
-                  {['WhatsApp', 'Shopify', 'Magento', 'Amazon', 'eBay'].map(
-                    (value) => (
-                      <option key={value}>{value}</option>
-                    ),
-                  )}
+                  {salesChannels.map((value) => (
+                    <option key={value}>{value}</option>
+                  ))}
                 </select>
               </div>
               <div className="field">
@@ -167,7 +205,40 @@ export function NewOrderForm() {
               </div>
             </div>
             {lines.map((line, index) => (
-              <div className="order-form-line" key={line.id}>{!!catalogue.length&&<label>Choose catalogue product<select className="commerce-input" value={line.productId??""} onChange={e=>{const product=catalogue.find(v=>v.id===e.target.value);if(product)update(line.id,{productId:product.id,name:product.name,supplier:supplierNames.find(v=>v.id===product.supplierId)?.name??"",article:product.details.article??"",price:(product.sellingPricePence/100).toFixed(2)});else update(line.id,{productId:undefined});}}><option value="">Custom item</option>{catalogue.map(v=><option key={v.id} value={v.id}>{v.name} · {v.sku}</option>)}</select></label>}
+              <div className="order-form-line" key={line.id}>
+                {!!catalogue.length && (
+                  <label>
+                    Choose catalogue product
+                    <select
+                      className="commerce-input"
+                      value={line.productId ?? ''}
+                      onChange={(e) => {
+                        const product = catalogue.find(
+                          (v) => v.id === e.target.value,
+                        );
+                        if (product)
+                          update(line.id, {
+                            productId: product.id,
+                            name: product.name,
+                            supplier:
+                              supplierNames.find(
+                                (v) => v.id === product.supplierId,
+                              )?.name ?? '',
+                            article: product.details.article ?? '',
+                            price: (product.sellingPricePence / 100).toFixed(2),
+                          });
+                        else update(line.id, { productId: undefined });
+                      }}
+                    >
+                      <option value="">Custom item</option>
+                      {catalogue.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name} · {v.sku}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <div className="line-number-row">
                   <span>ITEM {String(index + 1).padStart(2, '0')}</span>
                   <Button

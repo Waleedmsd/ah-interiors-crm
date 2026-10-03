@@ -2614,3 +2614,167 @@ html[data-motion='reduced'] :is(.ops-skeleton, .ops-spinner, .ops-toast) {
 .login-emblem {
   color: #3156b2;
 }
+
+.practical-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.cost-sheet,
+.record-activity {
+  padding: 24px;
+}
+.cost-sheet h2,
+.record-activity h3 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.cost-sheet > p,
+.record-activity > .muted {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+.cost-summary {
+  display: flex;
+  gap: 32px;
+  padding: 20px;
+  background: #f5f8fc;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.cost-summary span {
+  font-size: 12px;
+  color: #556479;
+}
+.cost-summary strong {
+  display: block;
+  font-size: 21px;
+  color: #172b4d;
+  margin-top: 8px;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0;
+  font-size: 13px;
+}
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 24px;
+}
+.activity-list li {
+  border-left: 2px solid #dce6f2;
+  padding: 0 0 22px 18px;
+}
+.activity-list li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.activity-list time {
+  color: #627188;
+}
+.activity-list li > span {
+  font-size: 12px;
+  color: #627188;
+}
+.activity-list p {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.record-toolbar {
+  padding: 20px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.record-toolbar label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+.record-toolbar input {
+  width: 100%;
+  min-width: 180px;
+}
+.record-toolbar > span {
+  font-size: 12px;
+  color: #627188;
+}
+
+.shopify-connection {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 24px;
+  margin: 20px 0;
+  background: #fff;
+  border: 1px solid #e1e8f0;
+  border-radius: 14px;
+  flex-wrap: wrap;
+}
+.shopify-connection > div:nth-child(2) {
+  flex: 1;
+}
+.shopify-connection h2 {
+  font-size: 17px;
+  font-weight: 650;
+}
+.shopify-connection p,
+.integration-footnote {
+  font-size: 13px;
+  color: #617089;
+  line-height: 1.7;
+}
+.shopify-logo {
+  color: #477d22;
+  background: #eef6e6;
+  border-radius: 12px;
+  padding: 14px;
+}
+.integration-setup {
+  padding: 26px;
+  display: grid;
+  gap: 18px;
+}
+.integration-setup p {
+  font-size: 13px;
+  line-height: 1.65;
+  color: #556479;
+}
+.import-line {
+  padding: 18px;
+  background: #f6f8fc;
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+}
+.import-line h4 {
+  font-weight: 650;
+}
+.integration-footnote {
+  margin-top: 18px;
+  max-width: 850px;
+}
+
+.record-toolbar > .input:first-child {
+  width: auto;
+  flex: 1;
+  min-width: 180px;
+}
+.record-toolbar select.input {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 160px;
+}
+.shopify-connection h2 {
+  overflow-wrap: anywhere;
+}
