@@ -1008,7 +1008,7 @@ function OperationalWorkspaceContent({ module }: { module: BusinessModule }) {
           </output>
         ) : layout === 'list' ? (
           <>
-            <div className="table-wrap">
+            <div className="table-wrap" role="region" tabIndex={0} aria-label={definition.title + ' records; scroll horizontally for all columns'}>
               <table className="ops-table">
                 <thead>
                   <tr>
