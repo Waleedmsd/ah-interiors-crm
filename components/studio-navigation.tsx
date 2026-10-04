@@ -47,6 +47,8 @@ export function StudioHeader({ pathname, title, onSearch, onMenu, onHelp, onNoti
 export function StudioSidebar({ pathname, mobile = false, onNavigate }: { pathname: string; mobile?: boolean; onNavigate?: () => void }) {
   const { cases, setAssistantOpen } = useWorkspace();
   const { user: staff } = useAuth();
+  const preview = process.env.NEXT_PUBLIC_CRM_MODE === 'preview' && process.env.NODE_ENV !== 'production';
+  const canNavigate = (path: string) => preview || canAccessWorkspace(staff, path);
   const { preferences, update, ready } = useUIPreferences();
   const reduced = !ready || preferences.motion === 'reduced';
   const [narrow, setNarrow] = useState(false);
@@ -63,7 +65,7 @@ export function StudioSidebar({ pathname, mobile = false, onNavigate }: { pathna
     { href: '/invoices', label: 'Invoices', icon: FileText, index: 'F' },
     { href: '/supplier-tracking', label: 'Supplier tracking', icon: PackageCheck, index: 'SUP' },
     { href: '/flooring/fitting', label: 'Flooring fitting', icon: Layers3, index: 'FIT' },
-  ].filter(item => canAccessWorkspace(staff, item.href));
+  ].filter(item => canNavigate(item.href));
   return (
     <aside className="liquid-sidebar" data-mobile={mobile} data-collapsed={collapsed}>
       <Link href="/" className="liquid-brand" onClick={onNavigate}><span className="liquid-brand-mark"><Orbit size={24} aria-hidden="true" /></span><span className="nav-copy">amiro<span className="brand-dot">.</span><small>AH INTERIORS</small></span></Link>
@@ -90,8 +92,8 @@ export function StudioSidebar({ pathname, mobile = false, onNavigate }: { pathna
         </LayoutGroup>
       </TooltipProvider>
       <div className="liquid-sidebar-bottom">
-        {canAccessWorkspace(staff, '/orders/new') && <Link href="/orders/new" className="liquid-new-order" aria-label="Create order" onClick={onNavigate}><Plus size={19} aria-hidden="true" /><span className="nav-copy">New order</span></Link>}
-        {canAccessWorkspace(staff, '/assistant') && <button className="liquid-assistant-link" aria-label="Open Amiro assistant" onClick={() => { setAssistantOpen(true); onNavigate?.(); }}><span className="liquid-ai-symbol"><Sparkles size={18} aria-hidden="true" /></span><span className="nav-copy"><strong>Ask Amiro</strong><small>A little less busywork.</small></span><ChevronRight className="nav-copy" size={15} aria-hidden="true" /></button>}
+        {canNavigate('/orders/new') && <Link href="/orders/new" className="liquid-new-order" aria-label="Create order" onClick={onNavigate}><Plus size={19} aria-hidden="true" /><span className="nav-copy">New order</span></Link>}
+        {canNavigate('/assistant') && <button className="liquid-assistant-link" aria-label="Open Amiro assistant" onClick={() => { setAssistantOpen(true); onNavigate?.(); }}><span className="liquid-ai-symbol"><Sparkles size={18} aria-hidden="true" /></span><span className="nav-copy"><strong>Ask Amiro</strong><small>A little less busywork.</small></span><ChevronRight className="nav-copy" size={15} aria-hidden="true" /></button>}
         <div className="liquid-sidebar-utilities"><Link href="/settings" className="liquid-nav-link" aria-label="Settings" aria-current={pathname === '/settings' ? 'page' : undefined} onClick={onNavigate}><Settings size={18} aria-hidden="true" /><span className="nav-copy">Settings</span></Link>{!mobile && <button className="icon-btn sidebar-collapse" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => update({ navigation: collapsed ? 'expanded' : 'collapsed' })}>{collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}</button>}</div>
         <div className="liquid-local-label nav-copy"><span /> AH Interiors · Staff workspace</div>
       </div>
