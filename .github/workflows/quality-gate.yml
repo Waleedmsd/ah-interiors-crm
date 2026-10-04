@@ -1,0 +1,89 @@
+name: CRM quality gate
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crm-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Tests, database and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-disposable-password
+          POSTGRES_DB: ah_crm_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI: 'true'
+      DATABASE_URL: postgresql://postgres:ci-only-disposable-password@127.0.0.1:5432/ah_crm_ci
+      APP_ORIGIN: http://localhost:3001
+      ATTACHMENT_ROOT: ./.runtime/ci-uploads
+      NEXT_PUBLIC_CRM_MODE: server
+      SHOPIFY_SHOP: ''
+      SHOPIFY_ACCESS_TOKEN: ''
+      SHOPIFY_CREDENTIALS_KEY: ''
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Save exact review source
+        run: |
+          mkdir -p .runtime/ci-evidence
+          git rev-parse HEAD > .runtime/ci-evidence/commit.txt
+          git archive --format=tar.gz --output=.runtime/ci-evidence/review-source.tar.gz HEAD
+      - name: Install locked dependencies
+        id: dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Create disposable test environment file
+        if: steps.dependencies.outcome == 'success'
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; import {randomBytes} from 'node:crypto'; writeFileSync('.env', 'SEED_PASSWORD=' + randomBytes(32).toString('hex') + '\n', {mode:0o600});"
+      - name: Domain regression tests
+        if: always() && steps.dependencies.outcome == 'success'
+        run: npm test
+      - name: TypeScript
+        if: always() && steps.dependencies.outcome == 'success'
+        run: npx --no-install tsc --noEmit
+      - name: PostgreSQL integration tests
+        if: always() && steps.dependencies.outcome == 'success'
+        run: npm run test:backend
+      - name: Verify migrations on a fresh database
+        if: always() && steps.dependencies.outcome == 'success'
+        run: npm run db:migrate
+      - name: Production build
+        if: always() && steps.dependencies.outcome == 'success'
+        run: npm run build
+      - name: Preserve verification source
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: crm-review-source-${{ github.run_id }}
+          path: .runtime/ci-evidence/
+          retention-days: 1
+          if-no-files-found: error
