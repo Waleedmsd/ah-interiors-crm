@@ -1,5 +1,7 @@
 'use client';
 import { useId, useState } from 'react';
+import { useAuth } from '@/components/auth-context';
+import { hasPermission } from '@/server/permissions';
 import { Plus, UserRound } from 'lucide-react';
 import { useWorkspace } from '@/components/workspace-provider';
 import { Button } from '@/components/ui/button';
@@ -21,6 +23,9 @@ export function CustomerPicker({
   createOnly?: boolean;
 }) {
   const { customers, mutate, ready } = useWorkspace();
+  const { user } = useAuth();
+  const preview = process.env.NEXT_PUBLIC_CRM_MODE === 'preview' && process.env.NODE_ENV !== 'production';
+  const mayCreate = preview || !!user && hasPermission(user, 'customers.write');
   const fieldId = useId();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
@@ -39,7 +44,7 @@ export function CustomerPicker({
         <Button
           type="button"
           className="btn btn-primary"
-          disabled={!ready}
+          disabled={!ready || !mayCreate}
           onClick={() => setOpen(true)}
         >
           <Plus size={16} /> Add customer
@@ -52,7 +57,7 @@ export function CustomerPicker({
               type="button"
               variant="ghost"
               className="text-link"
-              disabled={disabled || !ready}
+              disabled={disabled || !ready || !mayCreate}
               onClick={() => setOpen(true)}
             >
               <Plus size={14} /> New customer
@@ -94,8 +99,8 @@ export function CustomerPicker({
         <DialogContent className="commerce-dialog">
           <DialogTitle>New customer</DialogTitle>
           <DialogDescription>
-            One account for their orders, invoices and payment history. Saved on
-            this browser.
+            One account for their orders, invoices and payment history. Saved in
+            your workspace.
           </DialogDescription>
           <div className="form-grid">
             {(
@@ -148,7 +153,7 @@ export function CustomerPicker({
             <Button
               type="button"
               className="btn btn-primary"
-              disabled={!ready}
+              disabled={!ready || !mayCreate}
               onClick={async () => {
                 const result = await mutate({
                   type: 'create-customer',

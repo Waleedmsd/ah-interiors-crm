@@ -209,7 +209,7 @@ export function OrderReview({ id }: { id: string }) {
                         </p>
                       </div>
                       <span>
-                        {money(line.quantity * line.cost, 2)}
+                        {line.cost === null ? 'Restricted' : money(line.quantity * line.cost, 2)}
                         <small className="ops-field-label">
                           Supplier cost · sample
                         </small>

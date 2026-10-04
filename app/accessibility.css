@@ -1,0 +1,15 @@
+/* Shared accessibility corrections. Keep after the legacy/theme styles. */
+.liquid-nav-group > h2 { color: #596477; }
+.page .page-intro p,
+.page .page-intro .eyebrow,
+.page .page-intro > div > p { color: #526177; }
+.table-wrap > table th,
+.table-wrap > .ops-table th { color: #526177; }
+.liquid-sidebar .liquid-nav-selection { background: #edf2ff; border-color: #d5e0fb; }
+.liquid-sidebar .liquid-nav-link[aria-current='page'],
+.liquid-sidebar .liquid-nav-link[aria-current='page'] > .nav-copy,
+.liquid-sidebar .liquid-nav-link[aria-current='page'] > svg { color: #234baa; }
+.table-wrap[tabindex='0']:focus-visible { outline: 3px solid #087a95; outline-offset: 3px; }
+.purchase-record-details { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,220px),1fr)); gap: 18px 24px; margin-top: 20px; }
+.purchase-record-details dt { font-size: 12px; font-weight: 650; color: #526177; }
+.purchase-record-details dd { margin: 5px 0 0; color: #26354d; overflow-wrap: anywhere; }

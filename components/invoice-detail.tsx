@@ -1,5 +1,7 @@
 'use client';
 import { useState } from 'react';
+import { useAuth } from '@/components/auth-context';
+import { hasPermission } from '@/server/permissions';
 import Link from 'next/link';
 import { RecordAttachments } from '@/components/record-attachments';
 import {
@@ -48,12 +50,12 @@ export function InvoiceDetail({ id }: { id: string }) {
         <div className="empty-state">
           <h2>
             {ready
-              ? 'Invoice not found on this browser'
-              : 'Loading local invoice…'}
+              ? 'Invoice not found'
+              : 'Loading invoice…'}
           </h2>
           <p>
-            Locally saved invoices are available on the browser where you
-            created them.
+            Refresh the workspace to load the latest records, or check your
+            access with a workspace manager.
           </p>
           <Link href="/invoices" className="btn">
             Back to invoices
@@ -350,6 +352,9 @@ function InvoiceActions({
   customerEmail: string;
 }) {
   const { mutate, notify, ready, now } = useWorkspace();
+  const { user } = useAuth();
+  const preview = process.env.NEXT_PUBLIC_CRM_MODE === 'preview' && process.env.NODE_ENV !== 'production';
+  const canRecordPayments = preview || !!user && hasPermission(user, 'payments.write');
   const totals = invoiceTotals(invoice);
   const status = invoiceStatus(invoice);
   const [mode, setMode] = useState<
@@ -421,7 +426,7 @@ function InvoiceActions({
       setError(result.error);
       return false;
     }
-    notify('Customer email draft saved locally. Not sent.');
+    notify('Customer email draft saved in the workspace. Not sent.');
     return true;
   }
   return (
@@ -464,12 +469,13 @@ function InvoiceActions({
             <>
               <Button
                 className="btn btn-primary full-width"
-                disabled={!ready || status === 'Paid'}
+                disabled={!ready || status === 'Paid' || !canRecordPayments}
                 onClick={() => open('payment')}
               >
                 <CreditCard size={17} />{' '}
                 {status === 'Paid' ? 'Paid in full' : 'Record payment'}
               </Button>
+              {!canRecordPayments && <p className="form-footnote">Ask Accounts or Management to record a verified payment.</p>}
               <Button
                 variant="outline"
                 className="btn full-width"
@@ -499,8 +505,8 @@ function InvoiceActions({
         <div className="soft-notice">
           <ShieldCheck size={16} />
           <span>
-            {invoice.emailDraft ? 'Email draft saved · not sent. ' : ''}Local
-            preview. No email service or payment provider is connected.
+            {invoice.emailDraft ? 'Email draft saved · not sent. ' : ''}Manual
+            records only. No email service or payment provider is connected.
           </span>
         </div>
       </section>
@@ -526,7 +532,7 @@ function InvoiceActions({
           </DialogTitle>
           <DialogDescription>
             {mode === 'issue'
-              ? 'Issuing locks the customer details and financial lines. This records the invoice locally; it does not send an email.'
+              ? 'Issuing locks the customer details and financial lines. This records the invoice in the workspace; it does not send an email.'
               : mode === 'payment'
                 ? 'Only record money you have already received and verified. This updates the invoice and its linked order.'
                 : mode === 'void'
@@ -540,8 +546,8 @@ function InvoiceActions({
               <strong>{pounds(totals.total)}</strong>
               <span>Due {invoice.dueDate}</span>
               <p>
-                Local preview only. Verify your company details and tax
-                treatment before using invoices commercially.
+                Verify your company details and tax treatment before using
+                this invoice commercially.
               </p>
             </div>
           )}

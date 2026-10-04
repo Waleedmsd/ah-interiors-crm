@@ -1,0 +1,118 @@
+name: CRM quality gate
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: crm-quality-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    name: Tests, database and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-disposable-password
+          POSTGRES_DB: ah_crm_ci
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ah_crm_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI: 'true'
+      DATABASE_URL: postgresql://postgres:ci-only-disposable-password@127.0.0.1:5432/ah_crm_ci
+      APP_ORIGIN: http://localhost:3001
+      ATTACHMENT_ROOT: ./.runtime/ci-uploads
+      NEXT_PUBLIC_CRM_MODE: server
+      SHOPIFY_SHOP: ''
+      SHOPIFY_ACCESS_TOKEN: ''
+      SHOPIFY_CREDENTIALS_KEY: ''
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Save exact review source
+        run: |
+          mkdir -p .runtime/ci-evidence
+          git rev-parse HEAD > .runtime/ci-evidence/commit.txt
+          git archive --format=tar.gz --output=.runtime/ci-evidence/review-source.tar.gz HEAD
+      - name: Install locked dependencies
+        id: dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Create disposable test environment file
+        if: steps.dependencies.outcome == 'success'
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; import {randomBytes} from 'node:crypto'; writeFileSync('.env', 'SEED_PASSWORD=' + randomBytes(32).toString('hex') + '\n', {mode:0o600});"
+      - name: Domain regression tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm test 2>&1 | tee .runtime/ci-evidence/domain-tests.log
+      - name: TypeScript
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npx --no-install tsc --noEmit 2>&1 | tee .runtime/ci-evidence/typescript.log
+      - name: PostgreSQL integration tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run test:backend 2>&1 | tee .runtime/ci-evidence/backend-tests.log
+      - name: Verify migrations on a fresh database
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run db:migrate
+      - name: Production build
+        id: build
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run build
+      - name: Prepare isolated browser records
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          npm run db:seed
+          npx --no-install tsx --env-file=.env scripts/quality/staff-fixtures.ts
+      - name: Install Chromium
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Exercise production frontend
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          npm start -- --port 3001 > .runtime/ci-evidence/server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://localhost:3001/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://localhost:3001/api/health > /dev/null
+          BASELINE=0
+          STAFF=0
+          COMMERCE=0
+          node --env-file=.env scripts/quality/browser-baseline.mjs || BASELINE=$?
+          node --env-file=.env scripts/quality/staff-browser-check.mjs || STAFF=$?
+          node --env-file=.env scripts/quality/commerce-browser-check.mjs || COMMERCE=$?
+          test "$BASELINE" -eq 0 && test "$STAFF" -eq 0 && test "$COMMERCE" -eq 0
+      - name: Publish compact verification diagnostics
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: node scripts/quality/publish-summary.mjs
+      - name: Preserve verification source and screenshots
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: crm-review-source-${{ github.run_id }}
+          path: .runtime/ci-evidence/
+          retention-days: 7
+          if-no-files-found: error

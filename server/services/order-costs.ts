@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { supplierCostPence } from '../../lib/financial-access';
 import { z } from 'zod';
 import { database } from '../db';
 import { orders, orderCostSheets, auditLogs } from '../db/schema';
@@ -39,7 +40,7 @@ export function orderProfit(
     {
       revenuePence: Math.round(order.total * 100),
       supplierCostPence: Math.round(
-        order.lines.reduce((n, l) => n + l.quantity * l.cost * 100, 0),
+        order.lines.reduce((n, l) => n + l.quantity * supplierCostPence(l.cost), 0),
       ),
       discountPence: 0,
       vatBps: rules.vatBps,

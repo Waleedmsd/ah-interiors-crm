@@ -1,4 +1,5 @@
 import { businessOptions } from './business-options';
+import { presentCommerce } from './commerce-presentation';
 import { eq, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import {
@@ -138,7 +139,7 @@ export async function readCommerce(staff: Staff) {
       'NOT_INITIALIZED',
       'Run database migrations and the seed command first.',
     );
-  return { data: row.data, version: row.version };
+  return { data: presentCommerce(staff, row.data), version: row.version };
 }
 export async function mutateCommerce(staff: Staff, input: unknown) {
   authorize(staff, 'commerce.read');
@@ -182,7 +183,7 @@ export async function mutateCommerce(staff: Staff, input: unknown) {
         );
       return {
         ...(prior.result as object),
-        data: row.data,
+        data: presentCommerce(staff, row.data),
         version: row.version,
       };
     }
@@ -400,7 +401,7 @@ export async function mutateCommerce(staff: Staff, input: unknown) {
       digest: actionDigest,
       result: { id: result.id, version },
     });
-    return { data: result.state, version, id: result.id };
+    return { data: presentCommerce(staff, result.state), version, id: result.id };
   });
 }
 export async function importCommerce(staff: Staff, input: unknown) {

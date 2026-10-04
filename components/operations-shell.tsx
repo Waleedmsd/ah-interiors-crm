@@ -1,5 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useAuth } from '@/components/auth-context';
+import { canAccessWorkspace } from '@/lib/workspace-access';
 import { Bell, ChevronRight, Sparkles } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -92,6 +94,8 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
   );
 }
 function Shell({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const preview = process.env.NEXT_PUBLIC_CRM_MODE === 'preview' && process.env.NODE_ENV !== 'production';
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -272,7 +276,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             <CommandList className="!max-h-[420px]">
               <CommandEmpty>No results found.</CommandEmpty>
               <CommandGroup heading="Pages">
-                {navigation.map((item) => (
+                {navigation.filter(item => preview || canAccessWorkspace(user, item.href)).map((item) => (
                   <CommandItem
                     key={item.href}
                     onSelect={() => go(item.href)}
