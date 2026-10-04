@@ -1,0 +1,11 @@
+/* Corrections verified by the production-browser WCAG checks.
+   Keep these after the legacy theme so module accents do not override
+   the foreground of a selected dark navigation item. */
+.liquid-nav-group > h2 { color: #596477; }
+.page-intro .eyebrow,
+.page-intro > div > p { color: #526177; }
+.table-wrap thead th { color: #526177; }
+.liquid-nav-link[aria-current='page'],
+.liquid-nav-link[aria-current='page'] > .nav-copy,
+.liquid-nav-link[aria-current='page'] > svg { color: #fff; }
+.table-wrap[tabindex='0']:focus-visible { outline: 3px solid #087a95; outline-offset: 3px; }
