@@ -7,6 +7,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 concurrency:
   group: crm-quality-${{ github.ref }}
   cancel-in-progress: true
@@ -60,30 +63,31 @@ jobs:
         run: |
           node --input-type=module -e "import {writeFileSync} from 'node:fs'; import {randomBytes} from 'node:crypto'; writeFileSync('.env', 'SEED_PASSWORD=' + randomBytes(32).toString('hex') + '\n', {mode:0o600});"
       - name: Domain regression tests
-        if: always() && steps.dependencies.outcome == 'success'
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm test 2>&1 | tee .runtime/ci-evidence/domain-tests.log
       - name: TypeScript
-        if: always() && steps.dependencies.outcome == 'success'
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npx --no-install tsc --noEmit 2>&1 | tee .runtime/ci-evidence/typescript.log
       - name: PostgreSQL integration tests
-        if: always() && steps.dependencies.outcome == 'success'
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm run test:backend 2>&1 | tee .runtime/ci-evidence/backend-tests.log
       - name: Verify migrations on a fresh database
-        if: always() && steps.dependencies.outcome == 'success'
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm run db:migrate
       - name: Production build
-        if: always() && steps.dependencies.outcome == 'success'
+        id: build
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: npm run build
       - name: Prepare isolated browser records
-        if: always() && steps.dependencies.outcome == 'success'
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           npm run db:seed
           npx --no-install tsx --env-file=.env scripts/quality/staff-fixtures.ts
       - name: Install Chromium
-        if: always() && steps.dependencies.outcome == 'success'
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npx --no-install playwright install --with-deps chromium
       - name: Exercise production frontend
-        if: always() && steps.dependencies.outcome == 'success'
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           set -euo pipefail
           npm start -- --port 3001 > .runtime/ci-evidence/server.log 2>&1 &
@@ -96,11 +100,13 @@ jobs:
           curl --fail --silent http://localhost:3001/api/health > /dev/null
           BASELINE=0
           STAFF=0
+          COMMERCE=0
           node --env-file=.env scripts/quality/browser-baseline.mjs || BASELINE=$?
           node --env-file=.env scripts/quality/staff-browser-check.mjs || STAFF=$?
-          test "$BASELINE" -eq 0 && test "$STAFF" -eq 0
+          node --env-file=.env scripts/quality/commerce-browser-check.mjs || COMMERCE=$?
+          test "$BASELINE" -eq 0 && test "$STAFF" -eq 0 && test "$COMMERCE" -eq 0
       - name: Publish compact verification diagnostics
-        if: always() && steps.dependencies.outcome == 'success'
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: node scripts/quality/publish-summary.mjs
       - name: Preserve verification source and screenshots
         if: always()
