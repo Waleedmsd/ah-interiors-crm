@@ -12,7 +12,7 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "test": "node --test tests/*.test.mjs",
-    "test:backend": "tsx --env-file=.env --test tests/backend/*.test.ts",
+    "test:backend": "tsx --env-file-if-exists=.env --import ./tests/backend/setup.mjs --test tests/backend/*.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file=.env scripts/db-migrate.ts",
     "db:seed": "tsx --env-file=.env scripts/db-seed.ts",

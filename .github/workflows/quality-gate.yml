@@ -29,7 +29,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d ah_crm_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
@@ -79,9 +79,32 @@ jobs:
       - name: Production build
         if: always() && steps.dependencies.outcome == 'success'
         run: npm run build
+      - name: Prepare isolated browser records
+        if: always() && steps.dependencies.outcome == 'success'
+        run: npm run db:seed
+      - name: Install Chromium
+        if: always() && steps.dependencies.outcome == 'success'
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Exercise production frontend
+        if: always() && steps.dependencies.outcome == 'success'
+        run: |
+          set -euo pipefail
+          npm start -- --port 3001 > .runtime/ci-evidence/server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://localhost:3001/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node --env-file=.env scripts/quality/browser-baseline.mjs
+      - name: Export portable review dependencies once
+        if: always() && github.run_number == 2 && steps.dependencies.outcome == 'success'
+        run: |
+          tar -czf .runtime/ci-evidence/node-modules.tar.gz node_modules
+          docker exec ${{ job.services.postgres.id }} tar -czf - /usr/lib/postgresql /usr/share/postgresql /usr/lib/x86_64-linux-gnu > .runtime/ci-evidence/postgres-runtime.tar.gz
       - name: Preserve verification source
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: crm-review-source-${{ github.run_id }}
           path: .runtime/ci-evidence/
