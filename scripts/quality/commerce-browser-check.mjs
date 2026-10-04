@@ -87,6 +87,17 @@ try {
   await page.screenshot({ path: root + '/created-order.png', fullPage: true });
 
   await page.goto(origin + '/invoices/' + invoice.id, { waitUntil: 'networkidle' });
+  const attachmentName = 'quality-proof-' + key + '.png';
+  const attachmentBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2kAAAAABJRU5ErkJggg==', 'base64');
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Add document or photo', exact: true }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({ name: attachmentName, mimeType: 'image/png', buffer: attachmentBytes });
+  const attachmentLink = page.getByRole('link', { name: attachmentName, exact: true });
+  await expect(attachmentLink).toBeVisible();
+  const attachmentResponse = await manager.request.get(origin + await attachmentLink.getAttribute('href'));
+  assert.equal(attachmentResponse.status(), 200);
+  assert.ok((await attachmentResponse.body()).equals(attachmentBytes), 'The stored file bytes must match the uploaded file.');
   await page.getByRole('button', { name: 'Review & issue', exact: true }).click();
   dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: /^Issue (locally|invoice)$/ }).click();
@@ -94,7 +105,7 @@ try {
   invoice = (await ledger(manager)).invoices.find(value => value.id === invoice.id);
   assert.equal(invoice.lifecycle, 'Issued');
   assert.equal(invoice.customerSnapshot.id, customer.id);
-  report.checks.push('Issuing an invoice persisted its immutable customer snapshot.');
+  report.checks.push('The upload button stored exact attachment bytes; issuing persisted the immutable invoice customer snapshot.');
 
   await page.getByRole('button', { name: 'Record payment', exact: true }).click();
   dialog = page.getByRole('dialog');
@@ -105,12 +116,13 @@ try {
   await expect(dialog).toBeHidden();
   await page.reload({ waitUntil: 'networkidle' });
   await expect(page.getByText(paymentReference, { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: attachmentName, exact: true })).toBeVisible();
   state = await ledger(manager);
   invoice = state.invoices.find(value => value.id === invoice.id);
   assert.equal(invoice.payments.length, 1);
   assert.equal(invoice.payments[0].amountPence, 10001);
   assert.equal(state.operations.cases.find(value => value.id === order.id).paid, 100.01);
-  report.checks.push('Verified partial payment survived refresh and reconciled with its order in exact pennies.');
+  report.checks.push('Verified partial payment and attachment survived refresh; order and invoice reconciled in exact pennies.');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: root + '/invoice-mobile.png', fullPage: true });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
