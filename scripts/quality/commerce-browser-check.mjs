@@ -13,7 +13,7 @@ assert.ok(process.env.SEED_PASSWORD);
 const root = '.runtime/ci-evidence/commerce-browser';
 await mkdir(root, { recursive: true });
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
-const report = { checks: [], errors: [], failures: [] };
+const report = { checks: [], errors: [], failedRequests: [], failures: [] };
 const contexts = [];
 async function session(role) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
@@ -22,6 +22,13 @@ async function session(role) {
     headers: { Origin: origin }, data: { email: `quality-${role}@ahinteriors.test`, password: process.env.SEED_PASSWORD },
   });
   assert.equal(result.status(), 200, `Fixture login failed: ${role}`);
+  context.on('page', page => {
+    page.setDefaultTimeout(20000);
+    page.on('pageerror', error => report.errors.push({ role, message: error.message }));
+    page.on('response', response => {
+      if (response.url().startsWith(origin + '/api/') && response.status() >= 400) report.failedRequests.push({ role, path: new URL(response.url()).pathname, status: response.status() });
+    });
+  });
   return context;
 }
 async function ledger(context) {
@@ -32,8 +39,6 @@ async function ledger(context) {
 try {
   const manager = await session('management');
   const page = await manager.newPage();
-  page.setDefaultTimeout(20000);
-  page.on('pageerror', error => report.errors.push(error.message));
   const key = randomUUID().slice(0, 8);
   const name = 'Quality Persistence ' + key;
   const email = `quality-${key}@example.test`;
@@ -56,7 +61,11 @@ try {
   await page.goto(origin + '/orders/new?customer=' + encodeURIComponent(customer.id), { waitUntil: 'networkidle' });
   await page.getByLabel('Sales channel', { exact: true }).selectOption('Showroom');
   await page.getByLabel('Original order reference', { exact: true }).fill('QUALITY-' + key);
-  await page.getByLabel('Choose catalogue product', { exact: true }).selectOption('DEMO-WARDROBE');
+  // The implicit label wraps the select's options; use the accessible control
+  // name rather than exact label textContent, which includes those options.
+  const productPicker = page.getByRole('combobox', { name: /^Choose catalogue product/ });
+  await productPicker.selectOption('DEMO-WARDROBE');
+  await expect(productPicker).toHaveValue('DEMO-WARDROBE');
   await page.getByLabel('Quantity', { exact: true }).fill('2');
   await page.getByLabel('Unit price (£)', { exact: true }).fill('99.99');
   await page.getByLabel('Colour, size & accessories', { exact: true }).fill('Synthetic quality fixture; no live customer.');
@@ -68,6 +77,7 @@ try {
   assert.ok(order);
   assert.equal(order.customerId, customer.id);
   assert.equal(order.total, 214.98);
+  assert.equal(order.lines[0].productId, 'DEMO-WARDROBE');
   assert.equal(state.operations.cases.filter(value => value.sourceRef === 'QUALITY-' + key).length, 1);
   let invoice = state.invoices.find(value => value.orderId === order.id);
   assert.ok(invoice);
@@ -121,6 +131,12 @@ try {
   report.checks.push('Sales sees its order without supplier-cost controls or payment-recording permission.');
 } catch (error) {
   report.failures.push(error.message);
+  for (let index = 0; index < contexts.length; index++) {
+    for (const page of contexts[index].pages()) {
+      await page.screenshot({ path: `${root}/failure-${index}.png`, fullPage: true }).catch(() => {});
+      await writeFile(`${root}/failure-${index}.txt`, await page.locator('body').innerText().catch(() => 'Page unavailable.'));
+    }
+  }
   throw error;
 } finally {
   await writeFile(root + '/report.json', JSON.stringify(report, null, 2));
@@ -129,4 +145,5 @@ try {
   await browser.close();
 }
 assert.equal(report.errors.length, 0, 'Unexpected browser errors during commerce actions.');
+assert.equal(report.failedRequests.length, 0, 'A permitted commerce journey made a failed or unauthorized request.');
 assert.equal(report.checks.length, 6, 'All real persistence and role checks must complete.');
