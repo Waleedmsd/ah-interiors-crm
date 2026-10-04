@@ -1,5 +1,8 @@
 'use client';
 import { useState } from 'react';
+import { useAuth } from '@/components/auth-context';
+import { hasPermission } from '@/server/permissions';
+import { canReadSupplierCosts } from '@/lib/financial-access';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -94,12 +97,17 @@ export function OrderProducts({ order }: { order: OrderCase }) {
 }
 function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
   const { dispatch, now, notify, ready } = useWorkspace();
+  const { user } = useAuth();
+  const preview = process.env.NEXT_PUBLIC_CRM_MODE === 'preview' && process.env.NODE_ENV !== 'production';
+  const mayEdit = preview || !!user && hasPermission(user, 'approvals.write');
+  const maySeeCosts = preview || canReadSupplierCosts(user);
   const [article, setArticle] = useState(line.article);
   const [matched, setMatched] = useState(line.matched);
   const [cost, setCost] = useState(
-    line.costVerified === false ? '' : line.cost.toFixed(2),
+    line.costVerified === false || line.cost === null ? '' : line.cost.toFixed(2),
   );
   const locked =
+    !mayEdit ||
     !!order.flooringLeadId ||
     !ready ||
     order.pack?.state === 'Approved' ||
@@ -153,7 +161,7 @@ function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
             </>
           )}
         </div>
-        <div>
+        {maySeeCosts && <div>
           <label className="ops-field-label" htmlFor={'cost-' + line.id}>
             Supplier unit cost (£)
           </label>
@@ -166,7 +174,7 @@ function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
             onChange={(event) => setCost(event.target.value)}
             placeholder="Verify catalogue cost"
           />
-        </div>
+        </div>}
       </div>
       <div className="ops-line-bottom">
         <div>
@@ -177,16 +185,16 @@ function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
               disabled={locked || !article.trim()}
               onCheckedChange={(value) => setMatched(Boolean(value))}
             />
-            <span>Specification checked · local record</span>
+            <span>Specification checked</span>
           </label>
           <p>Includes finish, dimensions and every accessory.</p>
         </div>
-        {dirty ? (
+        {dirty && mayEdit ? (
           <Button
             className="btn btn-small btn-primary"
             disabled={locked || !Number.isFinite(parsePounds(cost))}
             onClick={async () => {
-              dispatch({
+              const result = await dispatch({
                 type: 'line',
                 id: order.id,
                 lineId: line.id,
@@ -195,10 +203,10 @@ function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
                 cost: parsePounds(cost) / 100,
                 now,
               });
-              notify(
+              if (!result.error) notify(
                 order.pack
                   ? 'Specification saved. Draft pack rebuilt; review checks reset.'
-                  : 'Sample specification saved.',
+                  : 'Specification saved.',
               );
             }}
           >
@@ -206,7 +214,7 @@ function ProductLine({ line, order }: { line: Line; order: OrderCase }) {
           </Button>
         ) : (
           <StatusPill tone={line.matched ? 'green' : 'gold'}>
-            {line.matched ? 'Matched · sample' : 'Needs review'}
+            {line.matched ? 'Specification matched' : 'Needs review'}
           </StatusPill>
         )}
       </div>

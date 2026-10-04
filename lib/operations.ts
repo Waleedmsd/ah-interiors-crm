@@ -50,7 +50,8 @@ export type Line = {
   quantity: number;
   unit?: SalesUnit;
   unitPrice: number;
-  cost: number;
+  /** null only in a role-redacted response; canonical ledger costs are numeric. */
+  cost: number | null;
   costVerified?: boolean;
   options: string;
   catalogue: string;

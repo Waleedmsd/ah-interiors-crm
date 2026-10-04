@@ -1120,6 +1120,7 @@ export function parseSavedCommerce(raw: string): CommerceState | null {
             typeof line.options !== 'string' ||
             !validMoney(pence(line.unitPrice)) ||
             !validSalesQuantity(line) ||
+            typeof line.cost !== 'number' ||
             !Number.isFinite(line.cost) ||
             line.cost < 0,
         )
