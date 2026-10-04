@@ -17,6 +17,7 @@ export function canAccessWorkspace(staff: Staff | null | undefined, input: strin
   if (path === '/purchasing' || path === '/supplier-tracking' || (segments[0] === 'purchasing' && segments.length === 3 && segments[2] === 'print')) return hasPermission(staff, 'approvals.write');
   if (path === '/reports') return hasPermission(staff, 'reports.read');
   if (path === '/integrations/shopify') return ['Management', 'Team Lead', 'Shopify Store Manager'].includes(staff.role);
+  if (path === '/customers' || (segments[0] === 'customers' && segments.length === 2)) return hasPermission(staff, 'commerce.read');
   if (path === '/orders/new') return hasPermission(staff, 'orders.write');
   if (path === '/reviews' || (segments[0] === 'orders' && segments.length === 3 && segments[2] === 'review')) return hasPermission(staff, 'approvals.write');
   if (path === '/orders' || (segments[0] === 'orders' && segments.length === 2)) return hasPermission(staff, 'commerce.read');
