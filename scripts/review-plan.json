@@ -1,3 +1,17 @@
 {
-  "mode": "inspect"
+  "mode": "apply",
+  "message": "fix: make all operational record tables keyboard-scrollable",
+  "files": [
+    {
+      "path": "components/operational-workspace.tsx",
+      "sha": "2b178c17921fc9f5c033d795598245b5c9266cda",
+      "replacements": [
+        {
+          "from": "<div className=\"table-wrap\">",
+          "to": "<div className=\"table-wrap\" role=\"region\" tabIndex={0} aria-label={definition.title + ' records; scroll horizontally for all columns'}>",
+          "count": 1
+        }
+      ]
+    }
+  ]
 }
