@@ -40,5 +40,21 @@ try {
   assert.ok(report.checks.every(c => !c.violations.some(v => ['critical', 'serious'].includes(v.impact))), 'Serious accessibility failures found. See browser report.');
 } finally {
   await writeFile(root + '/report.json', JSON.stringify(report, null, 2));
+  // Keep diagnostics in the job log as well as artifacts. Do not weaken the gate.
+  console.log('BROWSER_CHECK_SUMMARY', JSON.stringify({ pages: report.checks.length, errors: report.errors, failedRequests: report.failedRequests }));
+  const seen = new Set();
+  for (const check of report.checks) {
+    if (check.status !== 200 || check.actualRoute !== check.route || check.overflow.content > check.overflow.viewport + 1) {
+      console.log('BROWSER_ROUTE_FAILURE', JSON.stringify({ route: check.route, width: check.width, status: check.status, actual: check.actualRoute, overflow: check.overflow }));
+    }
+    for (const violation of check.violations) {
+      for (const node of violation.nodes) {
+        const key = JSON.stringify([violation.id, node.target, node.summary]);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        console.log('ACCESSIBILITY_DIAGNOSTIC', JSON.stringify({ route: check.route, width: check.width, id: violation.id, impact: violation.impact, ...node }));
+      }
+    }
+  }
   await browser.close();
 }
